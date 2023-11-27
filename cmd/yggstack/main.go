@@ -15,9 +15,9 @@ import (
 	"syscall"
 
 	"github.com/gologme/log"
-	"github.com/things-go/go-socks5"
 	gsyslog "github.com/hashicorp/go-syslog"
 	"github.com/hjson/hjson-go/v4"
+	"github.com/things-go/go-socks5"
 
 	"github.com/yggdrasil-network/yggdrasil-go/src/address"
 	"github.com/yggdrasil-network/yggdrasil-go/src/admin"

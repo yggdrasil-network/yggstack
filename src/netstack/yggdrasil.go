@@ -102,12 +102,12 @@ func (e *YggdrasilNIC) WritePackets(
 		n, err := vv.Read(e.writeBuf)
 		if err != nil {
 			log.Println(err)
-			return i-1, &tcpip.ErrAborted{}
+			return i - 1, &tcpip.ErrAborted{}
 		}
 		_, err = e.ipv6rwc.Write(e.writeBuf[:n])
 		if err != nil {
 			log.Println(err)
-			return i-1, &tcpip.ErrAborted{}
+			return i - 1, &tcpip.ErrAborted{}
 		}
 	}
 
