@@ -95,6 +95,21 @@ Unlike mainline Yggdrasil, Yggstack does NOT require privileged access.
 You can even run several Yggstack instances with different configurations
 on the same OS and user!
 
+### pk.ygg DNS resolver
+
+One unique feature of Yggstack is built-in DNS resolver functionality using
+`<publickey>.pk.ygg` format.
+
+For example, HowToYgg website (whose public key is `d40d4a7153cf288ea28f1865f6cfe95143a478b5c8c9e7cb002a0633d10a53eb`)
+can be accessed by any Web browser supporting SOCKS servers
+via  `http://d40d4a7153cf288ea28f1865f6cfe95143a478b5c8c9e7cb002a0633d10a53eb.pk.ygg`
+
+You can even use cURL with Yggstack:
+
+```
+curl -x socks5h://127.0.0.1:1080 http://d40d4a7153cf288ea28f1865f6cfe95143a478b5c8c9e7cb002a0633d10a53eb.pk.ygg
+```
+
 ## Documentation
 
 Documentation is available [on our website](https://yggdrasil-network.github.io).
