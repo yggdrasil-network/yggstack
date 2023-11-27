@@ -216,9 +216,11 @@ func main() {
 			panic(err)
 		}
 		address, subnet := n.core.Address(), n.core.Subnet()
-		logger.Printf("Your public key is %s", hex.EncodeToString(n.core.PublicKey()))
+		publicstr := hex.EncodeToString(n.core.PublicKey())
+		logger.Printf("Your public key is %s", publicstr)
 		logger.Printf("Your IPv6 address is %s", address.String())
 		logger.Printf("Your IPv6 subnet is %s", subnet.String())
+		logger.Printf("Your Yggstack resolver name is %s%s", publicstr, types.NameMappingSuffix)
 	}
 
 	// Setup the admin socket.
