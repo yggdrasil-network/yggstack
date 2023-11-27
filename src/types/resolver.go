@@ -29,11 +29,13 @@ func NewNameResolver(stack *netstack.YggdrasilNetstack, nameserver string) *Name
 			if nameserver == "" {
 				return nil, fmt.Errorf("no nameserver configured")
 			}
-			address, port, found := strings.Cut(nameserver, ":")
-			if !found {
-				port = "53"
+			host, port, err := net.SplitHostPort(nameserver)
+			if err != nil {
+				// default to dns service when no port given.
+				port = "dns"
+				host = nameserver
 			}
-			address = net.JoinHostPort(nameserver, port)
+			address = net.JoinHostPort(host, port)
 			return stack.DialContext(ctx, network, address)
 		}
 	}
