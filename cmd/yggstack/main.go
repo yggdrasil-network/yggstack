@@ -26,7 +26,7 @@ import (
 	"github.com/yggdrasil-network/yggdrasil-go/src/multicast"
 	"github.com/yggdrasil-network/yggdrasil-go/src/version"
 
-	"github.com/yggdrasil-network/yggstack/contrib/netstack"
+	"github.com/yggdrasil-network/yggstack/src/netstack"
 	"github.com/yggdrasil-network/yggstack/src/types"
 )
 

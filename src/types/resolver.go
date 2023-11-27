@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/yggdrasil-network/yggdrasil-go/src/address"
-	"github.com/yggdrasil-network/yggstack/contrib/netstack"
+	"github.com/yggdrasil-network/yggstack/src/netstack"
 )
 
 const NameMappingSuffix = ".pk.ygg"
