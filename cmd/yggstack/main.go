@@ -114,7 +114,7 @@ func main() {
 		_ = f.Close()
 
 	case *genconf:
-		cfg.AdminListen = ""
+		cfg.AdminListen = "none"
 		var bs []byte
 		if *confjson {
 			bs, err = json.MarshalIndent(cfg, "", "  ")
@@ -161,7 +161,7 @@ func main() {
 		return
 
 	case *normaliseconf:
-		cfg.AdminListen = ""
+		cfg.AdminListen = "none"
 		if cfg.PrivateKeyPath != "" {
 			cfg.PrivateKey = nil
 		}
