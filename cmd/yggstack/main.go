@@ -302,7 +302,7 @@ func main() {
 						_ = c.Close()
 						continue
 					}
-					types.ProxyTCP(n.core.MTU(), c, r)
+					go types.ProxyTCP(n.core.MTU(), c, r)
 				}
 			}(mapping)
 		}
