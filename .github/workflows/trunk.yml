@@ -3,7 +3,6 @@ name: Trunk build
 on:
   push:
     branch: develop
-  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -14,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
 
-    name: Build Windows/Linux/MacOS/FreeBSD
+    name: Build Windows/Linux/MacOS/FreeBSD/Android
 
     runs-on: ubuntu-20.04
     steps:
@@ -70,9 +69,11 @@ jobs:
           #GOOS=ios GOARCH=arm64 CC=$(go env GOROOT)/misc/ios/clangwrap.sh ./build ; mv yggstack yggstack-ios-arm64
           #GOOS=ios GOARCH=amd64 CC=$(go env GOROOT)/misc/ios/clangwrap.sh ./build ; mv yggstack yggstack-ios-amd64
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+
+      - name: Publish Trunk release
+        uses: softprops/action-gh-release@v1
         with:
-          name: Build static executables
-          path: "yggstack-*"
-          if-no-files-found: error
+          prerelease: true
+          tag_name: "trunk"
+          files: |
+            yggstack-*
