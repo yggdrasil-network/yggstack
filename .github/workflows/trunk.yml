@@ -75,4 +75,4 @@ jobs:
         run: |
           gh release create trunk --prerelease yggstack-* || gh release upload trunk yggstack-*
         env:
-          GH_TOKEN: {{ github.token }}
+          GH_TOKEN: ${{ github.token }}
