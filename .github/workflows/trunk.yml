@@ -73,6 +73,6 @@ jobs:
 
       - name: Publish release
         run: |
-          gh release create trunk --prerelease yggstack-* || gh release upload trunk yggstack-*
+          gh release create trunk --prerelease yggstack-* || gh release upload --clobber trunk yggstack-*
         env:
           GH_TOKEN: ${{ github.token }}
