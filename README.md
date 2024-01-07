@@ -1,6 +1,6 @@
 # Yggstack - Yggdrasil as SOCKS proxy / port forwarder
 
-[![Build status](https://github.com/yggdrasil-network/yggstack/actions/workflows/ci.yml/badge.svg)](https://github.com/yggdrasil-network/yggstack/actions/workflows/ci.yml)
+[![Build status](https://github.com/yggdrasil-network/yggstack/actions/workflows/trunk.yml/badge.svg)](https://github.com/yggdrasil-network/yggstack/actions/workflows/trunk.yml)
 
 ## Introduction
 
