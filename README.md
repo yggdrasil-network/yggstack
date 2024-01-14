@@ -30,6 +30,12 @@ Please see our [Installation](https://yggdrasil-network.github.io/installation.h
 page for more information. You may also find other platform-specific wrappers, scripts
 or tools in the `contrib` folder.
 
+## Downloading
+
+Bleeding-edge binaries can be downloaded via [trunk release](https://github.com/yggdrasil-network/yggstack/releases/tag/trunk)
+
+Tagged releases provide packages similar to Yggdrasil.
+
 ## Building
 
 If you want to build from source, as opposed to installing one of the pre-built
