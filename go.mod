@@ -7,12 +7,12 @@ require (
 	github.com/hashicorp/go-syslog v1.0.0
 	github.com/hjson/hjson-go/v4 v4.4.0
 	github.com/things-go/go-socks5 v0.0.4
-	github.com/yggdrasil-network/yggdrasil-go v0.5.4
+	github.com/yggdrasil-network/yggdrasil-go v0.5.5
 	gvisor.dev/gvisor v0.0.0-20240103195848-a9a6a6819b00
 )
 
 require (
-	github.com/Arceliar/ironwood v0.0.0-20231127131626-465b82dfb5bd // indirect
+	github.com/Arceliar/ironwood v0.0.0-20240115190409-ddd1fa67c018 // indirect
 	github.com/Arceliar/phony v0.0.0-20220903101357-530938a4b13d // indirect
 	github.com/bits-and-blooms/bitset v1.13.0 // indirect
 	github.com/bits-and-blooms/bloom/v3 v3.6.0 // indirect
@@ -23,10 +23,10 @@ require (
 	github.com/quic-go/qtls-go1-20 v0.4.1 // indirect
 	github.com/quic-go/quic-go v0.40.1 // indirect
 	go.uber.org/mock v0.4.0 // indirect
-	golang.org/x/crypto v0.17.0 // indirect
+	golang.org/x/crypto v0.18.0 // indirect
 	golang.org/x/exp v0.0.0-20240103183307-be819d1f06fc // indirect
 	golang.org/x/mod v0.14.0 // indirect
-	golang.org/x/net v0.19.0 // indirect
+	golang.org/x/net v0.20.0 // indirect
 	golang.org/x/sys v0.16.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
