@@ -95,6 +95,8 @@ func main() {
 		return
 
 	case *autoconf:
+		// Force AdminListen to none in yggstack
+		cfg.AdminListen = "none"
 		// Use an autoconf-generated config, this will give us random keys and
 		// port numbers, and will use an automatically selected TUN interface.
 
@@ -114,6 +116,7 @@ func main() {
 		_ = f.Close()
 
 	case *genconf:
+		// Force AdminListen to none in yggstack
 		cfg.AdminListen = "none"
 		var bs []byte
 		if *confjson {
