@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"net"
@@ -31,9 +32,10 @@ import (
 )
 
 type node struct {
-	core      *core.Core
-	multicast *multicast.Multicast
-	admin     *admin.AdminSocket
+	core           *core.Core
+	multicast      *multicast.Multicast
+	admin          *admin.AdminSocket
+	socks5Listener net.Listener
 }
 
 // The main function is responsible for configuring and starting Yggdrasil.
@@ -52,7 +54,7 @@ func main() {
 	getsnet := flag.Bool("subnet", false, "use in combination with either -useconf or -useconffile, outputs your IPv6 subnet")
 	getpkey := flag.Bool("publickey", false, "use in combination with either -useconf or -useconffile, outputs your public key")
 	loglevel := flag.String("loglevel", "info", "loglevel to enable")
-	socks := flag.String("socks", "", "address to listen on for SOCKS, i.e. :1080")
+	socks := flag.String("socks", "", "address to listen on for SOCKS, i.e. :1080; or UNIX socket file path, i.e. /tmp/yggstack.sock")
 	nameserver := flag.String("nameserver", "", "the Yggdrasil IPv6 address to use as a DNS server for SOCKS")
 	flag.Var(&expose, "exposetcp", "TCP ports to expose to the network, e.g. 22, 2022:22, 22:192.168.1.1:2022")
 	flag.Parse()
@@ -271,17 +273,45 @@ func main() {
 
 	// Create SOCKS server
 	{
-		if socks != nil && nameserver != nil && *socks != "" {
-			resolver := types.NewNameResolver(s, *nameserver)
-			socksOptions := []socks5.Option{
-				socks5.WithDial(s.DialContext),
-				socks5.WithResolver(resolver),
+		if socks != nil {
+			if nameserver != nil {
+				if strings.Contains(*socks, ":") {
+					logger.Infof("Starting SOCKS server on %s", *socks)
+					resolver := types.NewNameResolver(s, *nameserver)
+					socksOptions := []socks5.Option{
+						socks5.WithDial(s.DialContext),
+						socks5.WithResolver(resolver),
+					}
+					if logger.GetLevel("debug") {
+						socksOptions = append(socksOptions, socks5.WithLogger(logger))
+					}
+					server := socks5.NewServer(socksOptions...)
+					go server.ListenAndServe("tcp", *socks) // nolint:errcheck
+				} else {
+					logger.Infof("Starting SOCKS server with socket file %s", *socks)
+					_, err := os.Stat(*socks)
+					if os.IsNotExist(err) {
+						n.socks5Listener, err = net.Listen("unix", *socks)
+						if err != nil {
+							panic(err)
+						}
+						resolver := types.NewNameResolver(s, *nameserver)
+						socksOptions := []socks5.Option{
+							socks5.WithDial(s.DialContext),
+							socks5.WithResolver(resolver),
+						}
+						if logger.GetLevel("debug") {
+							socksOptions = append(socksOptions, socks5.WithLogger(logger))
+						}
+						server := socks5.NewServer(socksOptions...)
+						go server.Serve(n.socks5Listener) // nolint:errcheck
+					} else if err != nil {
+						logger.Errorf("Cannot create socket file %s: %s", *socks, err)
+					} else {
+						panic(errors.New(fmt.Sprintf("Socket file %s already exists", *socks)))
+					}
+				}
 			}
-			if logger.GetLevel("debug") {
-				socksOptions = append(socksOptions, socks5.WithLogger(logger))
-			}
-			server := socks5.NewServer(socksOptions...)
-			go server.ListenAndServe("tcp", *socks) // nolint:errcheck
 		}
 	}
 
@@ -317,6 +347,10 @@ func main() {
 	// Shut down the node.
 	_ = n.admin.Stop()
 	_ = n.multicast.Stop()
+	if n.socks5Listener != nil {
+		_ = n.socks5Listener.Close()
+		logger.Infof("Stopped UNIX socket listener")
+	}
 	n.core.Stop()
 }
 

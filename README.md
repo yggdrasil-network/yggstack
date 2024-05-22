@@ -78,6 +78,12 @@ To run SOCKS proxy server listening on local port 1080 using generated configura
 ./yggstack -useconffile /path/to/yggdrasil.conf -socks 127.0.0.1:1080
 ```
 
+To run SOCKS proxy server listening on UNIX socket file `/tmp/yggstack.sock`:
+
+```
+./yggstack -useconffile /path/to/yggdrasil.conf -socks /tmp/yggstack.sock
+```
+
 To expose network services (like a Web server) listening on local port 8080 to Yggdrasil
 network address at port 80:
 
