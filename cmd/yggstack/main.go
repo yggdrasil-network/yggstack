@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/gologme/log"
@@ -39,9 +40,15 @@ type node struct {
 	socks5Listener net.Listener
 }
 
+type UDPSession struct {
+	conn *net.UDPConn
+	remoteAddr net.Addr
+}
+
 // The main function is responsible for configuring and starting Yggdrasil.
 func main() {
-	var expose types.TCPMappings
+	var exposetcp types.TCPMappings
+	var exposeudp types.UDPMappings
 	genconf := flag.Bool("genconf", false, "print a new config to stdout")
 	useconf := flag.Bool("useconf", false, "read HJSON/JSON config from stdin")
 	useconffile := flag.String("useconffile", "", "read HJSON/JSON config from specified file path")
@@ -57,7 +64,8 @@ func main() {
 	loglevel := flag.String("loglevel", "info", "loglevel to enable")
 	socks := flag.String("socks", "", "address to listen on for SOCKS, i.e. :1080; or UNIX socket file path, i.e. /tmp/yggstack.sock")
 	nameserver := flag.String("nameserver", "", "the Yggdrasil IPv6 address to use as a DNS server for SOCKS")
-	flag.Var(&expose, "exposetcp", "TCP ports to expose to the network, e.g. 22, 2022:22, 22:192.168.1.1:2022")
+	flag.Var(&exposetcp, "exposetcp", "TCP ports to expose to the network, e.g. 22, 2022:22, 22:192.168.1.1:2022")
+	flag.Var(&exposeudp, "exposeudp", "UDP ports to expose to the network, e.g. 22, 2022:22, 22:192.168.1.1:2022")
 	flag.Parse()
 
 	// Catch interrupts from the operating system to exit gracefully.
@@ -322,13 +330,13 @@ func main() {
 
 	// Create TCP mappings
 	{
-		for _, mapping := range expose {
+		for _, mapping := range exposetcp {
 			go func(mapping types.TCPMapping) {
 				listener, err := s.ListenTCP(mapping.Listen)
 				if err != nil {
 					panic(err)
 				}
-				logger.Infof("Mapping Yggdrasil port %d to %s", mapping.Listen.Port, mapping.Mapped)
+				logger.Infof("Mapping Yggdrasil TCP port %d to %s", mapping.Listen.Port, mapping.Mapped)
 				for {
 					c, err := listener.Accept()
 					if err != nil {
@@ -341,6 +349,63 @@ func main() {
 						continue
 					}
 					go types.ProxyTCP(n.core.MTU(), c, r)
+				}
+			}(mapping)
+		}
+	}
+
+	// Create UDP mappings
+	{
+		for _, mapping := range exposeudp {
+			go func(mapping types.UDPMapping) {
+				mtu := n.core.MTU()
+				udpListenConn, err := s.ListenUDP(mapping.Listen)
+				if err != nil {
+					panic(err)
+				}
+				logger.Infof("Mapping Yggdrasil UDP port %d to %s", mapping.Listen.Port, mapping.Mapped)
+				remoteUdpConnections := new(sync.Map)
+				udpBuffer := make([]byte, mtu)
+				for {
+					bytesRead, remoteUdpAddr, err := udpListenConn.ReadFrom(udpBuffer)
+					if err != nil {
+						if bytesRead == 0 {
+							continue
+						}
+					}
+
+					remoteUdpAddrStr := remoteUdpAddr.String()
+
+					connVal, ok := remoteUdpConnections.Load(remoteUdpAddrStr)
+
+					if !ok {
+						logger.Infof("Creating new session for %s", remoteUdpAddr.String())
+						udpFwdConn, err := net.DialUDP("udp", nil, mapping.Mapped)
+						if err != nil {
+							logger.Errorf("Failed to connect to %s: %s", mapping.Mapped, err)
+							continue
+						}
+						udpSession := &UDPSession{
+							conn: udpFwdConn,
+							remoteAddr: remoteUdpAddr,
+						}
+						remoteUdpConnections.Store(remoteUdpAddrStr, udpSession)
+						go types.ReverseProxyUDP(mtu, udpListenConn, remoteUdpAddr, *udpFwdConn)
+					}
+
+
+					udpSession, ok := connVal.(*UDPSession)
+					if !ok {
+						continue
+					}
+
+					_, err = udpSession.conn.Write(udpBuffer[:bytesRead])
+					if err != nil {
+						logger.Debugf("Cannot write from yggdrasil to udp listener: %q", err)
+						udpSession.conn.Close()
+						remoteUdpConnections.Delete(remoteUdpAddrStr)
+						continue
+					}
 				}
 			}(mapping)
 		}
