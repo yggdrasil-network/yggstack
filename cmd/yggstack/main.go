@@ -40,15 +40,22 @@ type node struct {
 	socks5Listener net.Listener
 }
 
-type UDPSession struct {
-	conn *net.UDPConn
+type UDPConnSession struct {
+	conn       *net.UDPConn
+	remoteAddr net.Addr
+}
+
+type UDPPacketConnSession struct {
+	conn       *net.PacketConn
 	remoteAddr net.Addr
 }
 
 // The main function is responsible for configuring and starting Yggdrasil.
 func main() {
-	var exposetcp types.TCPMappings
-	var exposeudp types.UDPMappings
+	var localtcp types.TCPLocalMappings
+	var localudp types.UDPLocalMappings
+	var remotetcp types.TCPRemoteMappings
+	var remoteudp types.UDPRemoteMappings
 	genconf := flag.Bool("genconf", false, "print a new config to stdout")
 	useconf := flag.Bool("useconf", false, "read HJSON/JSON config from stdin")
 	useconffile := flag.String("useconffile", "", "read HJSON/JSON config from specified file path")
@@ -64,8 +71,10 @@ func main() {
 	loglevel := flag.String("loglevel", "info", "loglevel to enable")
 	socks := flag.String("socks", "", "address to listen on for SOCKS, i.e. :1080; or UNIX socket file path, i.e. /tmp/yggstack.sock")
 	nameserver := flag.String("nameserver", "", "the Yggdrasil IPv6 address to use as a DNS server for SOCKS")
-	flag.Var(&exposetcp, "exposetcp", "TCP ports to expose to the network, e.g. 22, 2022:22, 22:192.168.1.1:2022")
-	flag.Var(&exposeudp, "exposeudp", "UDP ports to expose to the network, e.g. 22, 2022:22, 22:192.168.1.1:2022")
+	flag.Var(&localtcp, "local-tcp", "TCP ports to forward to the remote Yggdradil node, e.g. 22:[a:b:c:d]:22, 127.0.0.1:22:[a:b:c:d]:22")
+	flag.Var(&localudp, "local-udp", "UDP ports to forward to the remote Yggdrasil node, e.g. 22:[a:b:c:d]:2022, 127.0.0.1:[a:b:c:d]:22")
+	flag.Var(&remotetcp, "remote-tcp", "TCP ports to expose to the network, e.g. 22, 2022:22, 22:192.168.1.1:2022")
+	flag.Var(&remoteudp, "remote-udp", "UDP ports to expose to the network, e.g. 22, 2022:22, 22:192.168.1.1:2022")
 	flag.Parse()
 
 	// Catch interrupts from the operating system to exit gracefully.
@@ -328,9 +337,96 @@ func main() {
 		}
 	}
 
-	// Create TCP mappings
+	// Create local TCP mappings (forwarding connections from local port
+	// to remote Yggdrasil node)
 	{
-		for _, mapping := range exposetcp {
+		for _, mapping := range localtcp {
+			go func(mapping types.TCPMapping) {
+				listener, err := net.ListenTCP("tcp", mapping.Listen)
+				if err != nil {
+					panic(err)
+				}
+				logger.Infof("Mapping local TCP port %d to Yggdrasil %s", mapping.Listen.Port, mapping.Mapped)
+				for {
+					c, err := listener.Accept()
+					if err != nil {
+						panic(err)
+					}
+					r, err := s.DialTCP(mapping.Mapped)
+					if err != nil {
+						logger.Errorf("Failed to connect to %s: %s", mapping.Mapped, err)
+						_ = c.Close()
+						continue
+					}
+					go types.ProxyTCP(n.core.MTU(), c, r)
+				}
+			}(mapping)
+		}
+	}
+
+	// Create local UDP mappings (forwarding connections from local port
+	// to remote Yggdrasil node)
+	{
+		for _, mapping := range localudp {
+			go func(mapping types.UDPMapping) {
+				mtu := n.core.MTU()
+				udpListenConn, err := net.ListenUDP("udp", mapping.Listen)
+				if err != nil {
+					panic(err)
+				}
+				logger.Infof("Mapping local UDP port %d to Yggdrasil %s", mapping.Listen.Port, mapping.Mapped)
+				localUdpConnections := new(sync.Map)
+				udpBuffer := make([]byte, mtu)
+				for {
+					bytesRead, remoteUdpAddr, err := udpListenConn.ReadFrom(udpBuffer)
+					if err != nil {
+						if bytesRead == 0 {
+							continue
+						}
+					}
+
+					remoteUdpAddrStr := remoteUdpAddr.String()
+
+					connVal, ok := localUdpConnections.Load(remoteUdpAddrStr)
+
+					if !ok {
+						logger.Infof("Creating new session for %s", remoteUdpAddr.String())
+						udpFwdConn, err := s.DialUDP(mapping.Mapped)
+						if err != nil {
+							logger.Errorf("Failed to connect to %s: %s", mapping.Mapped, err)
+							continue
+						}
+						udpSession := &UDPPacketConnSession{
+							conn:       &udpFwdConn,
+							remoteAddr: remoteUdpAddr,
+						}
+						localUdpConnections.Store(remoteUdpAddrStr, udpSession)
+						go types.ReverseProxyUDPPacketConn(mtu, udpListenConn, remoteUdpAddr, udpFwdConn)
+					}
+
+					udpSession, ok := connVal.(*UDPPacketConnSession)
+					if !ok {
+						continue
+					}
+
+					udpFwdConn := *udpSession.conn
+
+					_, err = udpFwdConn.WriteTo(udpBuffer[:bytesRead], mapping.Mapped)
+					if err != nil {
+						logger.Debugf("Cannot write from yggdrasil to udp listener: %q", err)
+						udpFwdConn.Close()
+						localUdpConnections.Delete(remoteUdpAddrStr)
+						continue
+					}
+				}
+			}(mapping)
+		}
+	}
+
+	// Create remote TCP mappings (forwarding connections from Yggdrasil
+	// node to local port)
+	{
+		for _, mapping := range remotetcp {
 			go func(mapping types.TCPMapping) {
 				listener, err := s.ListenTCP(mapping.Listen)
 				if err != nil {
@@ -354,9 +450,10 @@ func main() {
 		}
 	}
 
-	// Create UDP mappings
+	// Create remote UDP mappings (forwarding connections from Yggdrasil
+	// node to local port)
 	{
-		for _, mapping := range exposeudp {
+		for _, mapping := range remoteudp {
 			go func(mapping types.UDPMapping) {
 				mtu := n.core.MTU()
 				udpListenConn, err := s.ListenUDP(mapping.Listen)
@@ -385,16 +482,15 @@ func main() {
 							logger.Errorf("Failed to connect to %s: %s", mapping.Mapped, err)
 							continue
 						}
-						udpSession := &UDPSession{
-							conn: udpFwdConn,
+						udpSession := &UDPConnSession{
+							conn:       udpFwdConn,
 							remoteAddr: remoteUdpAddr,
 						}
 						remoteUdpConnections.Store(remoteUdpAddrStr, udpSession)
-						go types.ReverseProxyUDP(mtu, udpListenConn, remoteUdpAddr, *udpFwdConn)
+						go types.ReverseProxyUDPConn(mtu, udpListenConn, remoteUdpAddr, *udpFwdConn)
 					}
 
-
-					udpSession, ok := connVal.(*UDPSession)
+					udpSession, ok := connVal.(*UDPConnSession)
 					if !ok {
 						continue
 					}
