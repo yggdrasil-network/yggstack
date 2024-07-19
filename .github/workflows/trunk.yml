@@ -28,6 +28,18 @@ jobs:
         with:
           go-version: "1.21"
 
+      - name: Download and install musl toolchain for Linux
+        run: |
+          sudo mkdir -p /opt/x-tools
+          pushd /tmp
+          curl -s "https://api.github.com/repos/musl-cross/musl-cross/releases/latest" |
+            jq -r '.assets[] | .browser_download_url' | while read -r LINK; do
+              TARBALL="$(basename "$LINK")"
+              curl -L -o "$TARBALL" "$LINK"
+              sudo tar -xf "$TARBALL" -C /opt/x-tools
+          done
+          popd
+
       - name: Build static executables
         run: |
           GOOS=windows GOARCH=arm GOARM=7 ./build -o yggstack-windows-armv7.exe
@@ -47,6 +59,17 @@ jobs:
           GOOS=linux GOARCH=ppc64le ./build -o yggstack-linux-ppc64le
           GOOS=linux GOARCH=riscv64 ./build -o yggstack-linux-riscv64
           GOOS=linux GOARCH=s390x ./build -o yggstack-linux-s390x
+          CC="/opt/x-tools/x86_64-multilib-linux-musl/bin/x86_64-multilib-linux-musl-gcc" CFLAGS="-m32" GOOS=linux GOARCH=386 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-i386-musl-static
+          CC="/opt/x-tools/x86_64-multilib-linux-musl/bin/x86_64-multilib-linux-musl-gcc" GOOS=linux GOARCH=amd64 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-amd64-musl-static
+          CC="/opt/x-tools/arm-unknown-linux-musleabi/bin/arm-unknown-linux-musleabi-gcc" GOOS=linux GOARCH=arm GOARM=6 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-armv6-musl-static
+          CC="/opt/x-tools/arm-unknown-linux-musleabi/bin/arm-unknown-linux-musleabi-gcc" GOOS=linux GOARCH=arm GOARM=7 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-armv7-musl-static
+          CC="/opt/x-tools/aarch64-unknown-linux-musl/bin/aarch64-unknown-linux-musl-gcc" GOOS=linux GOARCH=arm64 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-arm64-musl-static
+          CC="/opt/x-tools/mips-unknown-linux-muslsf/bin/mips-unknown-linux-muslsf-gcc" GOOS=linux GOARCH=mips GOMIPS=softfloat ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-mips-sf-musl-static
+          CC="/opt/x-tools/mipsel-unknown-linux-muslsf/bin/mipsel-unknown-linux-muslsf-gcc" GOOS=linux GOARCH=mipsle GOMIPS=softfloat ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-mipsle-sf-musl-static
+          CC="/opt/x-tools/mips64-unknown-linux-musl/bin/mips64-unknown-linux-musl-gcc" GOOS=linux GOARCH=mips64 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-mips64-musl-static
+          CC="/opt/x-tools/mips64el-unknown-linux-musl/bin/mips64el-unknown-linux-musl-gcc" GOOS=linux GOARCH=mips64le ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-mips64le-musl-static
+          CC="/opt/x-tools/riscv64-unknown-linux-musl/bin/riscv64-unknown-linux-musl-gcc" GOOS=linux GOARCH=riscv64 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-riscv64-musl-static
+          CC="/opt/x-tools/s390x-ibm-linux-musl/bin/s390x-ibm-linux-musl-gcc" GOOS=linux GOARCH=s390x ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-s390x-musl-static
           GOOS=darwin GOARCH=arm64 ./build -o yggstack-darwin-arm64
           GOOS=darwin GOARCH=amd64 ./build -o yggstack-darwin-amd64
           GOOS=freebsd GOARCH=arm64 ./build -o yggstack-freebsd-arm64
