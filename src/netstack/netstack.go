@@ -86,12 +86,12 @@ func (s *YggdrasilNetstack) DialContext(ctx context.Context, network, address st
 	}
 }
 
-func (s *YggdrasilNetstack) DialTCP(addr *net.TCPAddr) (net.Conn, error) {
+func (s *YggdrasilNetstack) DialTCP(addr *net.TCPAddr) (*gonet.TCPConn, error) {
 	fa, pn, _ := convertToFullAddr(addr.IP, addr.Port)
 	return gonet.DialTCP(s.stack, fa, pn)
 }
 
-func (s *YggdrasilNetstack) DialUDP(addr *net.UDPAddr) (net.PacketConn, error) {
+func (s *YggdrasilNetstack) DialUDP(addr *net.UDPAddr) (*gonet.UDPConn, error) {
 	fa, pn, _ := convertToFullAddr(addr.IP, addr.Port)
 	return gonet.DialUDP(s.stack, nil, &fa, pn)
 }
@@ -101,7 +101,7 @@ func (s *YggdrasilNetstack) ListenTCP(addr *net.TCPAddr) (net.Listener, error) {
 	return gonet.ListenTCP(s.stack, fa, pn)
 }
 
-func (s *YggdrasilNetstack) ListenUDP(addr *net.UDPAddr) (net.PacketConn, error) {
+func (s *YggdrasilNetstack) ListenUDP(addr *net.UDPAddr) (*gonet.UDPConn, error) {
 	fa, pn, _ := convertToFullAddr(addr.IP, addr.Port)
 	return gonet.DialUDP(s.stack, &fa, nil, pn)
 }

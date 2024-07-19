@@ -31,6 +31,8 @@ import (
 
 	"github.com/yggdrasil-network/yggstack/src/netstack"
 	"github.com/yggdrasil-network/yggstack/src/types"
+
+	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 )
 
 type node struct {
@@ -40,13 +42,8 @@ type node struct {
 	socks5Listener net.Listener
 }
 
-type UDPConnSession struct {
-	conn       *net.UDPConn
-	remoteAddr net.Addr
-}
-
-type UDPPacketConnSession struct {
-	conn       *net.PacketConn
+type UDPSession struct {
+	conn       interface{}
 	remoteAddr net.Addr
 }
 
@@ -396,22 +393,23 @@ func main() {
 							logger.Errorf("Failed to connect to %s: %s", mapping.Mapped, err)
 							continue
 						}
-						udpSession := &UDPPacketConnSession{
-							conn:       &udpFwdConn,
+						udpSession := &UDPSession{
+							conn:       udpFwdConn,
 							remoteAddr: remoteUdpAddr,
 						}
 						localUdpConnections.Store(remoteUdpAddrStr, udpSession)
-						go types.ReverseProxyUDPPacketConn(mtu, udpListenConn, remoteUdpAddr, udpFwdConn)
+						go types.ReverseProxyUDP(mtu, udpListenConn, remoteUdpAddr, udpFwdConn)
 					}
 
-					udpSession, ok := connVal.(*UDPPacketConnSession)
+					udpSession, ok := connVal.(*UDPSession)
 					if !ok {
 						continue
 					}
 
-					udpFwdConn := *udpSession.conn
+					udpFwdConnPtr := udpSession.conn.(*gonet.UDPConn)
+					udpFwdConn := *udpFwdConnPtr
 
-					_, err = udpFwdConn.WriteTo(udpBuffer[:bytesRead], mapping.Mapped)
+					_, err = udpFwdConn.Write(udpBuffer[:bytesRead])
 					if err != nil {
 						logger.Debugf("Cannot write from yggdrasil to udp listener: %q", err)
 						udpFwdConn.Close()
@@ -482,23 +480,26 @@ func main() {
 							logger.Errorf("Failed to connect to %s: %s", mapping.Mapped, err)
 							continue
 						}
-						udpSession := &UDPConnSession{
+						udpSession := &UDPSession{
 							conn:       udpFwdConn,
 							remoteAddr: remoteUdpAddr,
 						}
 						remoteUdpConnections.Store(remoteUdpAddrStr, udpSession)
-						go types.ReverseProxyUDPConn(mtu, udpListenConn, remoteUdpAddr, *udpFwdConn)
+						go types.ReverseProxyUDP(mtu, udpListenConn, remoteUdpAddr, udpFwdConn)
 					}
 
-					udpSession, ok := connVal.(*UDPConnSession)
+					udpSession, ok := connVal.(*UDPSession)
 					if !ok {
 						continue
 					}
 
-					_, err = udpSession.conn.Write(udpBuffer[:bytesRead])
+					udpFwdConnPtr := udpSession.conn.(*net.UDPConn)
+					udpFwdConn := *udpFwdConnPtr
+
+					_, err = udpFwdConn.Write(udpBuffer[:bytesRead])
 					if err != nil {
 						logger.Debugf("Cannot write from yggdrasil to udp listener: %q", err)
-						udpSession.conn.Close()
+						udpFwdConn.Close()
 						remoteUdpConnections.Delete(remoteUdpAddrStr)
 						continue
 					}

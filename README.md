@@ -72,7 +72,8 @@ other configuration such as listen addresses or multicast addresses, etc.
 
 ### Run Yggstack
 
-To run SOCKS proxy server listening on local port 1080 using generated configuration:
+To run SOCKS proxy server listening on local port 1080 using generated
+configuration (like `ssh -D`):
 
 ```
 ./yggstack -useconffile /path/to/yggdrasil.conf -socks 127.0.0.1:1080
@@ -84,11 +85,35 @@ To run SOCKS proxy server listening on UNIX socket file `/tmp/yggstack.sock`:
 ./yggstack -useconffile /path/to/yggdrasil.conf -socks /tmp/yggstack.sock
 ```
 
-To expose network services (like a Web server) listening on local port 8080 to Yggdrasil
-network address at port 80:
+To expose network services (like a Web server) listening on local port 8080
+to Yggdrasil network address at port 80 (like `ssh -R`):
+
+TCP:
 
 ```
-./yggstack -useconffile /path/to/yggdrasil.conf -exposetcp 80:127.0.0.1:8080
+./yggstack -useconffile /path/to/yggdrasil.conf -remote-tcp 80:127.0.0.1:8080
+```
+
+UDP:
+
+```
+./yggstack -useconffile /path/to/yggdrasil.conf -remote-udp 53:127.0.0.1:53
+```
+
+To forward remote port on some other Yggdrasil node to local machine (like `ssh -L`):
+
+TCP:
+
+```
+./yggstack -useconffile /path/to/yggdrasil.conf -local-tcp 127.0.0.1:8080:<remote-yggdrasil-ipv6>:8080
+./yggstack -useconffile /path/to/yggdrasil.conf -local-tcp [::1]:8080:<remote-yggdrasil-ipv6>:8080
+```
+
+UDP:
+
+```
+./yggstack -useconffile /path/to/yggdrasil.conf -local-udp 127.0.0.1:5353:<remote-yggdrasil-ipv6>:53
+./yggstack -useconffile /path/to/yggdrasil.conf -local-udp [::1]:5353:<remote-yggdrasil-ipv6>:53
 ```
 
 To run as a standalone node without SOCKS server or TCP port forwarding:
