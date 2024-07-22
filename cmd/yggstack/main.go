@@ -387,7 +387,7 @@ func main() {
 					connVal, ok := localUdpConnections.Load(remoteUdpAddrStr)
 
 					if !ok {
-						logger.Infof("Creating new session for %s", remoteUdpAddr.String())
+						logger.Debugf("Creating new session for %s", remoteUdpAddr.String())
 						udpFwdConn, err := s.DialUDP(mapping.Mapped)
 						if err != nil {
 							logger.Errorf("Failed to connect to %s: %s", mapping.Mapped, err)
@@ -474,7 +474,7 @@ func main() {
 					connVal, ok := remoteUdpConnections.Load(remoteUdpAddrStr)
 
 					if !ok {
-						logger.Infof("Creating new session for %s", remoteUdpAddr.String())
+						logger.Debugf("Creating new session for %s", remoteUdpAddr.String())
 						udpFwdConn, err := net.DialUDP("udp", nil, mapping.Mapped)
 						if err != nil {
 							logger.Errorf("Failed to connect to %s: %s", mapping.Mapped, err)
