@@ -292,12 +292,13 @@ func main() {
 			socksOptions := []socks5.Option{
 				socks5.WithDial(s.DialContext),
 			}
-			if nameserver != nil && *nameserver != "" {
+			if nameserver != nil {
+				if *nameserver == "" {
+					logger.Infof("DNS nameserver is not set!")
+					logger.Infof("SOCKS server will not be able to resolve hostnames other than .pk.ygg !")
+				}
 				resolver := types.NewNameResolver(s, *nameserver)
 				socksOptions = append(socksOptions, socks5.WithResolver(resolver))
-			} else {
-				logger.Infof("DNS nameserver is not set!")
-				logger.Infof("SOCKS server will not be able to resolve hostnames other than .pk.ygg !")
 			}
 			if logger.GetLevel("debug") {
 				socksOptions = append(socksOptions, socks5.WithLogger(logger))
