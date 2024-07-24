@@ -97,11 +97,15 @@ func (e *YggdrasilNIC) IsAttached() bool { return e.dispatcher != nil }
 
 func (e *YggdrasilNIC) MTU() uint32 { return uint32(e.ipv6rwc.MTU()) }
 
+func (e *YggdrasilNIC) SetMTU(uint32) {}
+
 func (*YggdrasilNIC) Capabilities() stack.LinkEndpointCapabilities { return stack.CapabilityNone }
 
 func (*YggdrasilNIC) MaxHeaderLength() uint16 { return 40 }
 
 func (*YggdrasilNIC) LinkAddress() tcpip.LinkAddress { return "" }
+
+func (*YggdrasilNIC) SetLinkAddress(tcpip.LinkAddress) {}
 
 func (*YggdrasilNIC) Wait() {}
 
@@ -168,8 +172,9 @@ func (e *YggdrasilNIC) ParseHeader(*stack.PacketBuffer) bool {
 	return true
 }
 
-func (e *YggdrasilNIC) Close() error {
+func (e *YggdrasilNIC) Close() {
 	e.stack.stack.RemoveNIC(1)
 	e.dispatcher = nil
-	return nil
 }
+
+func (e *YggdrasilNIC) SetOnCloseAction(func()) {}
