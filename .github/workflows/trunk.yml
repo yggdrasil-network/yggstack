@@ -17,7 +17,7 @@ jobs:
       fail-fast: false
 
     name: Build Windows/Linux/MacOS/FreeBSD/Android
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
         with:
@@ -28,71 +28,225 @@ jobs:
         with:
           go-version: "1.21"
 
-      - name: Download and install musl toolchain for Linux
+      - name: Download and install cross-tools
         run: |
-          sudo mkdir -p /opt/x-tools
-          pushd /tmp
-          curl -s "https://api.github.com/repos/musl-cross/musl-cross/releases/latest" |
-            jq -r '.assets[] | .browser_download_url' | while read -r LINK; do
-              TARBALL="$(basename "$LINK")"
-              curl -L -o "$TARBALL" "$LINK"
-              sudo tar -xf "$TARBALL" -C /opt/x-tools
-          done
-          popd
+          sudo apt-get update
+          sudo apt-get install \
+            crossbuild-essential-armhf \
+            crossbuild-essential-arm64 \
+            crossbuild-essential-i386 \
+            crossbuild-essential-mips \
+            crossbuild-essential-mipsel \
+            crossbuild-essential-mips64 \
+            crossbuild-essential-mips64el \
+            crossbuild-essential-riscv64 \
+            crossbuild-essential-s390x
 
-      - name: Build static executables
+      - name: Build yggstack executables
         run: |
+          echo "::group::yggstack-windows-armv7.exe"
           GOOS=windows GOARCH=arm GOARM=7 ./build -o yggstack-windows-armv7.exe
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-windows-arm64.exe"
           GOOS=windows GOARCH=arm64 ./build -o yggstack-windows-arm64.exe
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-windows-i386.exe"
           GOOS=windows GOARCH=386 ./build -o yggstack-windows-i386.exe
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-windows-amd64.exe"
           GOOS=windows GOARCH=amd64 ./build -o yggstack-windows-amd64.exe
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-i386"
           GOOS=linux GOARCH=386 ./build -o yggstack-linux-i386
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-amd64"
           GOOS=linux GOARCH=amd64 ./build -o yggstack-linux-amd64
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-armv6"
           GOOS=linux GOARCH=arm GOARM=6 ./build -o yggstack-linux-armv6
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-armv7"
           GOOS=linux GOARCH=arm GOARM=7 ./build -o yggstack-linux-armv7
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-arm64"
           GOOS=linux GOARCH=arm64 ./build -o yggstack-linux-arm64
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-mips-sf"
           GOOS=linux GOARCH=mips GOMIPS=softfloat ./build -o yggstack-linux-mips-sf
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-mipsle-sf"
           GOOS=linux GOARCH=mipsle GOMIPS=softfloat ./build -o yggstack-linux-mipsle-sf
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-mips64"
           GOOS=linux GOARCH=mips64 ./build -o yggstack-linux-mips64
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-mips64le"
           GOOS=linux GOARCH=mips64le ./build -o yggstack-linux-mips64le
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-ppc64"
           GOOS=linux GOARCH=ppc64 ./build -o yggstack-linux-ppc64
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-ppc64le"
           GOOS=linux GOARCH=ppc64le ./build -o yggstack-linux-ppc64le
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-riscv64"
           GOOS=linux GOARCH=riscv64 ./build -o yggstack-linux-riscv64
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-s390x"
           GOOS=linux GOARCH=s390x ./build -o yggstack-linux-s390x
-          CC="/opt/x-tools/x86_64-multilib-linux-musl/bin/x86_64-multilib-linux-musl-gcc" CFLAGS="-m32" GOOS=linux GOARCH=386 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-i386-musl-static
-          CC="/opt/x-tools/x86_64-multilib-linux-musl/bin/x86_64-multilib-linux-musl-gcc" GOOS=linux GOARCH=amd64 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-amd64-musl-static
-          CC="/opt/x-tools/arm-unknown-linux-musleabi/bin/arm-unknown-linux-musleabi-gcc" GOOS=linux GOARCH=arm GOARM=6 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-armv6-musl-static
-          CC="/opt/x-tools/arm-unknown-linux-musleabi/bin/arm-unknown-linux-musleabi-gcc" GOOS=linux GOARCH=arm GOARM=7 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-armv7-musl-static
-          CC="/opt/x-tools/aarch64-unknown-linux-musl/bin/aarch64-unknown-linux-musl-gcc" GOOS=linux GOARCH=arm64 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-arm64-musl-static
-          CC="/opt/x-tools/mips-unknown-linux-muslsf/bin/mips-unknown-linux-muslsf-gcc" GOOS=linux GOARCH=mips GOMIPS=softfloat ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-mips-sf-musl-static
-          CC="/opt/x-tools/mipsel-unknown-linux-muslsf/bin/mipsel-unknown-linux-muslsf-gcc" GOOS=linux GOARCH=mipsle GOMIPS=softfloat ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-mipsle-sf-musl-static
-          CC="/opt/x-tools/mips64-unknown-linux-musl/bin/mips64-unknown-linux-musl-gcc" GOOS=linux GOARCH=mips64 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-mips64-musl-static
-          CC="/opt/x-tools/mips64el-unknown-linux-musl/bin/mips64el-unknown-linux-musl-gcc" GOOS=linux GOARCH=mips64le ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-mips64le-musl-static
-          CC="/opt/x-tools/riscv64-unknown-linux-musl/bin/riscv64-unknown-linux-musl-gcc" GOOS=linux GOARCH=riscv64 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-riscv64-musl-static
-          CC="/opt/x-tools/s390x-ibm-linux-musl/bin/s390x-ibm-linux-musl-gcc" GOOS=linux GOARCH=s390x ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-s390x-musl-static
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-i386-static"
+          CGO_ENABLED=1 CC="/usr/bin/i686-linux-gnu-gcc" GOOS=linux GOARCH=386 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-i386-static
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-amd64-static"
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-amd64-static
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-armv6-static"
+          CGO_ENABLED=1 CC="/usr/bin/arm-linux-gnueabihf-gcc" GOOS=linux GOARCH=arm GOARM=6 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-armv6-static
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-armv7-static"
+          CGO_ENABLED=1 CC="/usr/bin/arm-linux-gnueabihf-gcc" GOOS=linux GOARCH=arm GOARM=7 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-armv7-static
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-arm64-static"
+          CGO_ENABLED=1 CC="/usr/bin/aarch64-linux-gnu-gcc" GOOS=linux GOARCH=arm64 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-arm64-static
+          echo "::endgroup::"
+          #
+          #echo "::group::yggstack-linux-mips-sf-static"
+          #CGO_ENABLED=1 CC="/usr/bin/mips-linux-gnu-gcc" GOOS=linux GOARCH=mips GOMIPS=softfloat ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-mips-sf-static
+          #echo "::endgroup::"
+          #
+          #echo "::group::yggstack-linux-mipsle-sf-static"
+          #CGO_ENABLED=1 CC="/usr/bin/mipsel-linux-gnu-gcc" GOOS=linux GOARCH=mipsle GOMIPS=softfloat ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-mipsle-sf-static
+          #echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-mips64-static"
+          CGO_ENABLED=1 CC="/usr/bin/mips64-linux-gnuabi64-gcc" GOOS=linux GOARCH=mips64 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-mips64-static
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-mips64le-static"
+          CGO_ENABLED=1 CC="/usr/bin/mips64el-linux-gnuabi64-gcc" GOOS=linux GOARCH=mips64le ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-mips64le-static
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-riscv64-static"
+          CGO_ENABLED=1 CC="/usr/bin/riscv64-linux-gnu-gcc" GOOS=linux GOARCH=riscv64 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-riscv64-static
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-s390x-static"
+          CGO_ENABLED=1 CC="/usr/bin/s390x-linux-gnu-gcc" GOOS=linux GOARCH=s390x ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-s390x-static
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-darwin-arm64"
           GOOS=darwin GOARCH=arm64 ./build -o yggstack-darwin-arm64
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-darwin-amd64"
           GOOS=darwin GOARCH=amd64 ./build -o yggstack-darwin-amd64
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-freebsd-arm64"
           GOOS=freebsd GOARCH=arm64 ./build -o yggstack-freebsd-arm64
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-freebsd-amd64"
           GOOS=freebsd GOARCH=amd64 ./build -o yggstack-freebsd-amd64
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-freebsd-armv6"
           GOOS=freebsd GOARCH=arm GOARM=6 ./build -o yggstack-freebsd-armv6
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-freebsd-armv7"
           GOOS=freebsd GOARCH=arm GOARM=7 ./build -o yggstack-freebsd-armv7
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-freebsd-i386"
           GOOS=freebsd GOARCH=386 ./build -o yggstack-freebsd-i386
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-openbsd-arm64"
           GOOS=openbsd GOARCH=arm64 ./build -o yggstack-openbsd-arm64
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-openbsd-amd64"
           GOOS=openbsd GOARCH=amd64 ./build -o yggstack-openbsd-amd64
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-openbsd-armv6"
           GOOS=openbsd GOARCH=arm GOARM=6 ./build -o yggstack-openbsd-armv6
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-openbsd-armv7"
           GOOS=openbsd GOARCH=arm GOARM=7 ./build -o yggstack-openbsd-armv7
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-openbsd-i386"
           GOOS=openbsd GOARCH=386 ./build -o yggstack-openbsd-i386
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-netbsd-arm64"
           GOOS=netbsd GOARCH=arm64 ./build -o yggstack-netbsd-arm64
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-netbsd-amd64"
           GOOS=netbsd GOARCH=amd64 ./build -o yggstack-netbsd-amd64
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-netbsd-armv6"
           GOOS=netbsd GOARCH=arm GOARM=6 ./build -o yggstack-netbsd-armv6
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-netbsd-armv7"
           GOOS=netbsd GOARCH=arm GOARM=7 ./build -o yggstack-netbsd-armv7
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-netbsd-i386"
           GOOS=netbsd GOARCH=386 ./build -o yggstack-netbsd-i386
-          CC="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang" GOOS=android GOARCH=arm64 ./build -o yggstack-android-arm64
-          CC="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android21-clang" GOOS=android GOARCH=amd64 ./build -o yggstack-android-amd64
-          CC="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang" GOOS=android GOARCH=arm GOARM=7 ./build -o yggstack-android-armv7
-          CC="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/i686-linux-android21-clang" GOOS=android GOARCH=386 ./build -o yggstack-android-i386
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-android-arm64"
+          CGO_ENABLED=1 CC="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang" GOOS=android GOARCH=arm64 ./build -o yggstack-android-arm64
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-android-amd64"
+          CGO_ENABLED=1 CC="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android21-clang" GOOS=android GOARCH=amd64 ./build -o yggstack-android-amd64
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-android-armv7"
+          CGO_ENABLED=1 CC="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang" GOOS=android GOARCH=arm GOARM=7 ./build -o yggstack-android-armv7
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-android-i386"
+          CGO_ENABLED=1 CC="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/i686-linux-android21-clang" GOOS=android GOARCH=386 ./build -o yggstack-android-i386
+          echo "::endgroup::"
+          #
+          #echo "::group::yggstack-ios-arm64"
           #GOOS=ios GOARCH=arm64 CC=$(go env GOROOT)/misc/ios/clangwrap.sh ./build -o yggstack-ios-arm64
+          #echo "::endgroup::"
+          #
+          #echo "::group::yggstack-ios-amd64"
           #GOOS=ios GOARCH=amd64 CC=$(go env GOROOT)/misc/ios/clangwrap.sh ./build -o yggstack-ios-amd64
+          #echo "::endgroup::"
 
       - name: Publish release
         run: |
