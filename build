@@ -21,6 +21,7 @@ do
   r) ARGS="$ARGS -race";;
   o) ARGS="$ARGS -o $OPTARG";;
   p) ARGS="$ARGS -buildmode=pie";;
+  s) ARGS="$ARGS -tags netgo,osusersgo,static" LDFLAGS="$LDFLAGS -extldflags '-static'";;
   esac
 done
 
