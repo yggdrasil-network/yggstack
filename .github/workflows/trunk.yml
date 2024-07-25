@@ -28,20 +28,6 @@ jobs:
         with:
           go-version: "1.21"
 
-      - name: Download and install cross-tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install \
-            crossbuild-essential-armhf \
-            crossbuild-essential-arm64 \
-            crossbuild-essential-i386 \
-            crossbuild-essential-mips \
-            crossbuild-essential-mipsel \
-            crossbuild-essential-mips64 \
-            crossbuild-essential-mips64el \
-            crossbuild-essential-riscv64 \
-            crossbuild-essential-s390x
-
       - name: Build yggstack executables
         run: |
           echo "::group::yggstack-windows-armv7.exe"
@@ -113,47 +99,68 @@ jobs:
           echo "::endgroup::"
           #
           echo "::group::yggstack-linux-i386-static"
-          CGO_ENABLED=1 CC="/usr/bin/i686-linux-gnu-gcc" GOOS=linux GOARCH=386 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-i386-static
+          CGO_ENABLED=0 GOOS=linux GOARCH=386 ./build -s -o yggstack-linux-i386-static
+          ldd yggstack-linux-i386-static || echo "OK"
           echo "::endgroup::"
           #
           echo "::group::yggstack-linux-amd64-static"
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-amd64-static
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 ./build -s -o yggstack-linux-amd64-static
+          ldd yggstack-linux-amd64-static || echo "OK"
           echo "::endgroup::"
           #
           echo "::group::yggstack-linux-armv6-static"
-          CGO_ENABLED=1 CC="/usr/bin/arm-linux-gnueabihf-gcc" GOOS=linux GOARCH=arm GOARM=6 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-armv6-static
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=6 ./build -s -o yggstack-linux-armv6-static
+          ldd yggstack-linux-armv6-static || echo "OK"
           echo "::endgroup::"
           #
           echo "::group::yggstack-linux-armv7-static"
-          CGO_ENABLED=1 CC="/usr/bin/arm-linux-gnueabihf-gcc" GOOS=linux GOARCH=arm GOARM=7 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-armv7-static
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 ./build -s -o yggstack-linux-armv7-static
+          ldd yggstack-linux-armv7-static || echo "OK"
           echo "::endgroup::"
           #
           echo "::group::yggstack-linux-arm64-static"
-          CGO_ENABLED=1 CC="/usr/bin/aarch64-linux-gnu-gcc" GOOS=linux GOARCH=arm64 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-arm64-static
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 ./build -s -o yggstack-linux-arm64-static
+          ldd yggstack-linux-arm64-static || echo "OK"
           echo "::endgroup::"
           #
-          #echo "::group::yggstack-linux-mips-sf-static"
-          #CGO_ENABLED=1 CC="/usr/bin/mips-linux-gnu-gcc" GOOS=linux GOARCH=mips GOMIPS=softfloat ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-mips-sf-static
-          #echo "::endgroup::"
+          echo "::group::yggstack-linux-mips-sf-static"
+          CGO_ENABLED=0 GOOS=linux GOARCH=mips GOMIPS=softfloat ./build -s -o yggstack-linux-mips-sf-static
+          ldd yggstack-linux-mips-sf-static || echo "OK"
+          echo "::endgroup::"
           #
-          #echo "::group::yggstack-linux-mipsle-sf-static"
-          #CGO_ENABLED=1 CC="/usr/bin/mipsel-linux-gnu-gcc" GOOS=linux GOARCH=mipsle GOMIPS=softfloat ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-mipsle-sf-static
-          #echo "::endgroup::"
+          echo "::group::yggstack-linux-mipsle-sf-static"
+          CGO_ENABLED=0 GOOS=linux GOARCH=mipsle GOMIPS=softfloat ./build -s -o yggstack-linux-mipsle-sf-static
+          ldd yggstack-linux-mipsle-sf-static || echo "OK"
+          echo "::endgroup::"
           #
           echo "::group::yggstack-linux-mips64-static"
-          CGO_ENABLED=1 CC="/usr/bin/mips64-linux-gnuabi64-gcc" GOOS=linux GOARCH=mips64 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-mips64-static
+          CGO_ENABLED=0 GOOS=linux GOARCH=mips64 ./build -s -o yggstack-linux-mips64-static
+          ldd yggstack-linux-mips64-static || echo "OK"
           echo "::endgroup::"
           #
           echo "::group::yggstack-linux-mips64le-static"
-          CGO_ENABLED=1 CC="/usr/bin/mips64el-linux-gnuabi64-gcc" GOOS=linux GOARCH=mips64le ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-mips64le-static
+          CGO_ENABLED=0 GOOS=linux GOARCH=mips64le ./build -s -o yggstack-linux-mips64le-static
+          ldd yggstack-linux-mips64le-static || echo "OK"
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-ppc64"
+          CGO_ENABLED=0 GOOS=linux GOARCH=ppc64 ./build -s -o yggstack-linux-ppc64
+          ldd yggstack-linux-ppc64-static || echo "OK"
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-linux-ppc64le"
+          CGO_ENABLED=0 GOOS=linux GOARCH=ppc64le ./build -s -o yggstack-linux-ppc64le
+          ldd yggstack-linux-ppc64le-static || echo "OK"
           echo "::endgroup::"
           #
           echo "::group::yggstack-linux-riscv64-static"
-          CGO_ENABLED=1 CC="/usr/bin/riscv64-linux-gnu-gcc" GOOS=linux GOARCH=riscv64 ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-riscv64-static
+          CGO_ENABLED=0 GOOS=linux GOARCH=riscv64 ./build -s -o yggstack-linux-riscv64-static
+          ldd yggstack-linux-riscv64-static || echo "OK"
           echo "::endgroup::"
           #
           echo "::group::yggstack-linux-s390x-static"
-          CGO_ENABLED=1 CC="/usr/bin/s390x-linux-gnu-gcc" GOOS=linux GOARCH=s390x ./build -l "-linkmode 'external' -extldflags '-static' -s" -o yggstack-linux-s390x-static
+          CGO_ENABLED=0 GOOS=linux GOARCH=s390x ./build -s -o yggstack-linux-s390x-static
+          ldd yggstack-linux-s390x-static || echo "OK"
           echo "::endgroup::"
           #
           echo "::group::yggstack-darwin-arm64"
