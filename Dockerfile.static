@@ -1,0 +1,9 @@
+FROM --platform=linux/amd64 gcr.io/distroless/static
+
+ARG TARGETOS
+ARG TARGETARCH
+ARG TARGETVARIANT
+
+COPY --chown=0:0 --chmod=0755 yggstack-${TARGETOS}-${TARGETARCH}${TARGETVARIANT}-static /bin/yggstack
+
+ENTRYPOINT [ "/bin/yggstack" ]
