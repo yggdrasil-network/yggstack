@@ -8,12 +8,16 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   build:
     strategy:
       fail-fast: false
 
-    name: Build Windows/Linux-static/MacOS/FreeBSD/Android
+    name: Build Windows/Linux-static/MacOS/*BSD-static/Android
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,12 +26,17 @@ jobs:
 
       - name: Build yggstack executables
         run: |
-          echo "::group::yggstack-windows-armv7.exe"
-          GOOS=windows GOARCH=arm GOARM=7 ./build -o yggstack-windows-armv7.exe
+          set -e
+          echo "::group::yggstack-windows-amd64.exe"
+          GOOS=windows GOARCH=amd64 ./build -o yggstack-windows-amd64.exe
           echo "::endgroup::"
           #
           echo "::group::yggstack-windows-arm64.exe"
           GOOS=windows GOARCH=arm64 ./build -o yggstack-windows-arm64.exe
+          echo "::endgroup::"
+          #
+          echo "::group::yggstack-windows-armv7.exe"
+          GOOS=windows GOARCH=arm GOARM=7 ./build -o yggstack-windows-armv7.exe
           echo "::endgroup::"
           #
           echo "::group::yggstack-windows-i386.exe"
@@ -35,73 +44,72 @@ jobs:
           GOOS=windows GOARCH=386 ./build -o yggstack-windows-386.exe
           echo "::endgroup::"
           #
-          echo "::group::yggstack-windows-amd64.exe"
-          GOOS=windows GOARCH=amd64 ./build -o yggstack-windows-amd64.exe
-          echo "::endgroup::"
-          #
-          echo "::group::yggstack-linux-i386-static"
-          GOOS=linux GOARCH=386 ./build -s -o yggstack-linux-i386-static
-          GOOS=linux GOARCH=386 ./build -s -o yggstack-linux-386-static
-          ! ldd yggstack-linux-i386-static
-          echo "::endgroup::"
-          #
+          # NOTE: Go toolchain does produce dynamically linked binaries
+          # for native-architecture Linux/*BSD. Since we are building on amd64,
+          # request this buid to be fully static like the othe builds
           echo "::group::yggstack-linux-amd64-static"
           GOOS=linux GOARCH=amd64 ./build -s -o yggstack-linux-amd64-static
           ! ldd yggstack-linux-amd64-static
           echo "::endgroup::"
           #
+          echo "::group::yggstack-linux-arm64-static"
+          GOOS=linux GOARCH=arm64 ./build -o yggstack-linux-arm64-static
+          ! ldd yggstack-linux-arm64-static
+          echo "::endgroup::"
+          #
           echo "::group::yggstack-linux-armv6-static"
-          GOOS=linux GOARCH=arm GOARM=6 ./build -s -o yggstack-linux-armv6-static
+          GOOS=linux GOARCH=arm GOARM=6 ./build -o yggstack-linux-armv6-static
           ! ldd yggstack-linux-armv6-static
           echo "::endgroup::"
           #
           echo "::group::yggstack-linux-armv7-static"
-          GOOS=linux GOARCH=arm GOARM=7 ./build -s -o yggstack-linux-armv7-static
+          GOOS=linux GOARCH=arm GOARM=7 ./build -o yggstack-linux-armv7-static
           ! ldd yggstack-linux-armv7-static
           echo "::endgroup::"
           #
-          echo "::group::yggstack-linux-arm64-static"
-          GOOS=linux GOARCH=arm64 ./build -s -o yggstack-linux-arm64-static
-          ! ldd yggstack-linux-arm64-static
+          echo "::group::yggstack-linux-i386-static"
+          GOOS=linux GOARCH=386 ./build -o yggstack-linux-i386-static
+          GOOS=linux GOARCH=386 ./build -o yggstack-linux-386-static
+          ! ldd yggstack-linux-i386-static
           echo "::endgroup::"
           #
           echo "::group::yggstack-linux-mips-sf-static"
-          GOOS=linux GOARCH=mips GOMIPS=softfloat ./build -s -o yggstack-linux-mips-sf-static
+          GOOS=linux GOARCH=mips GOMIPS=softfloat ./build -o yggstack-linux-mips-sf-static
           ! ldd yggstack-linux-mips-sf-static
           echo "::endgroup::"
           #
           echo "::group::yggstack-linux-mipsle-sf-static"
-          GOOS=linux GOARCH=mipsle GOMIPS=softfloat ./build -s -o yggstack-linux-mipsle-sf-static
+          GOOS=linux GOARCH=mipsle GOMIPS=softfloat ./build -o yggstack-linux-mipsle-sf-static
           ! ldd yggstack-linux-mipsle-sf-static
           echo "::endgroup::"
           #
           echo "::group::yggstack-linux-mips64-static"
-          GOOS=linux GOARCH=mips64 ./build -s -o yggstack-linux-mips64-static
+          GOOS=linux GOARCH=mips64 ./build -o yggstack-linux-mips64-static
           ! ldd yggstack-linux-mips64-static
           echo "::endgroup::"
           #
           echo "::group::yggstack-linux-mips64le-static"
-          GOOS=linux GOARCH=mips64le ./build -s -o yggstack-linux-mips64le-static
+          GOOS=linux GOARCH=mips64le ./build -o yggstack-linux-mips64le-static
           ! ldd yggstack-linux-mips64le-static
           echo "::endgroup::"
           #
           echo "::group::yggstack-linux-ppc64-static"
-          GOOS=linux GOARCH=ppc64 ./build -s -o yggstack-linux-ppc64-static
+          GOOS=linux GOARCH=ppc64 ./build -o yggstack-linux-ppc64-static
           ! ldd yggstack-linux-ppc64-static
           echo "::endgroup::"
           #
           echo "::group::yggstack-linux-ppc64le-static"
-          GOOS=linux GOARCH=ppc64le ./build -s -o yggstack-linux-ppc64le-static
+          GOOS=linux GOARCH=ppc64le ./build -o yggstack-linux-ppc64le-static
           ! ldd yggstack-linux-ppc64le-static
           echo "::endgroup::"
           #
           echo "::group::yggstack-linux-riscv64-static"
-          GOOS=linux GOARCH=riscv64 ./build -s -o yggstack-linux-riscv64-static
+          GOOS=linux GOARCH=riscv64 ./build -o yggstack-linux-riscv64-static
           ! ldd yggstack-linux-riscv64-static
           echo "::endgroup::"
           #
           echo "::group::yggstack-linux-s390x-static"
-          GOOS=linux GOARCH=s390x ./build -s -o yggstack-linux-s390x-static
+          GOOS=linux GOARCH=s390x ./build -o yggstack-linux-s390x-static
           ! ldd yggstack-linux-s390x-static
           echo "::endgroup::"
           #
@@ -159,7 +167,7 @@ jobs:
           GOOS=netbsd GOARCH=amd64 ./build -o yggstack-netbsd-amd64-static
           echo "::endgroup::"
           #
-          echo "::group::yggstack-netbsd-arm64"
+          echo "::group::yggstack-netbsd-arm64-static"
           GOOS=netbsd GOARCH=arm64 ./build -o yggstack-netbsd-arm64-static
           echo "::endgroup::"
           #
@@ -200,116 +208,6 @@ jobs:
           #echo "::group::yggstack-ios-amd64"
           #GOOS=ios GOARCH=amd64 CC=$(go env GOROOT)/misc/ios/clangwrap.sh ./build -o yggstack-ios-amd64
           #echo "::endgroup::"
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@master
-        with:
-          name: yggstack-allnoglibc
-          path: yggstack-*
-
-  build-linux-glibc:
-    strategy:
-      fail-fast: false
-
-    name: Build Linux-glibc
-    runs-on: ubuntu-latest
-    container:
-      image: jumpserver/golang:1.22-buster
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Build yggstack executables
-        run: |
-          git config --global --add safe.directory /__w/yggstack/yggstack
-          echo "::group::yggstack-linux-i386"
-          GOOS=linux GOARCH=386 ./build -o yggstack-linux-i386
-          GOOS=linux GOARCH=386 ./build -o yggstack-linux-386
-          echo "::endgroup::"
-          #
-          echo "::group::yggstack-linux-amd64"
-          GOOS=linux GOARCH=amd64 ./build -o yggstack-linux-amd64
-          echo "::endgroup::"
-          #
-          echo "::group::yggstack-linux-armv6"
-          GOOS=linux GOARCH=arm GOARM=6 ./build -o yggstack-linux-armv6
-          echo "::endgroup::"
-          #
-          echo "::group::yggstack-linux-armv7"
-          GOOS=linux GOARCH=arm GOARM=7 ./build -o yggstack-linux-armv7
-          echo "::endgroup::"
-          #
-          echo "::group::yggstack-linux-arm64"
-          GOOS=linux GOARCH=arm64 ./build -o yggstack-linux-arm64
-          echo "::endgroup::"
-          #
-          echo "::group::yggstack-linux-mips-sf"
-          GOOS=linux GOARCH=mips GOMIPS=softfloat ./build -o yggstack-linux-mips-sf
-          echo "::endgroup::"
-          #
-          echo "::group::yggstack-linux-mipsle-sf"
-          GOOS=linux GOARCH=mipsle GOMIPS=softfloat ./build -o yggstack-linux-mipsle-sf
-          echo "::endgroup::"
-          #
-          echo "::group::yggstack-linux-mips64"
-          GOOS=linux GOARCH=mips64 ./build -o yggstack-linux-mips64
-          echo "::endgroup::"
-          #
-          echo "::group::yggstack-linux-mips64le"
-          GOOS=linux GOARCH=mips64le ./build -o yggstack-linux-mips64le
-          echo "::endgroup::"
-          #
-          echo "::group::yggstack-linux-ppc64"
-          GOOS=linux GOARCH=ppc64 ./build -o yggstack-linux-ppc64
-          echo "::endgroup::"
-          #
-          echo "::group::yggstack-linux-ppc64le"
-          GOOS=linux GOARCH=ppc64le ./build -o yggstack-linux-ppc64le
-          echo "::endgroup::"
-          #
-          echo "::group::yggstack-linux-riscv64"
-          GOOS=linux GOARCH=riscv64 ./build -o yggstack-linux-riscv64
-          echo "::endgroup::"
-          #
-          echo "::group::yggstack-linux-s390x"
-          GOOS=linux GOARCH=s390x ./build -o yggstack-linux-s390x
-          echo "::endgroup::"
-          #
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@master
-        with:
-          name: yggstack-linuxglibc
-          path: yggstack-*
-
-  publish:
-    strategy:
-      fail-fast: false
-
-    needs:
-      - build
-      - build-linux-glibc
-
-    permissions:
-      contents: write
-      packages: write
-
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Download artifacts (all excluding glibc)
-        uses: actions/download-artifact@master
-        with:
-          name: yggstack-allnoglibc
-
-      - name: Download artifacts (linux glibc)
-        uses: actions/download-artifact@master
-        with:
-          name: yggstack-linuxglibc
 
       - name: Publish release
         run: |
