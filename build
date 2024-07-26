@@ -9,7 +9,7 @@ PKGVER=${PKGVER:-$(sh contrib/semver/version.sh --bare)}
 LDFLAGS="-X $PKGSRC.buildName=$PKGNAME -X $PKGSRC.buildVersion=$PKGVER"
 ARGS="-v"
 
-while getopts "utc:l:dro:p" option
+while getopts "utc:l:dro:ps" option
 do
   case "$option"
   in
@@ -21,7 +21,7 @@ do
   r) ARGS="$ARGS -race";;
   o) ARGS="$ARGS -o $OPTARG";;
   p) ARGS="$ARGS -buildmode=pie";;
-  s) ARGS="$ARGS -tags netgo,osusersgo,static" LDFLAGS="$LDFLAGS -extldflags '-static'";;
+  s) ARGS="$ARGS -tags netgo,osusersgo,static" LDFLAGS="$LDFLAGS -extldflags '-static'" CGO_ENABLED=0;;
   esac
 done
 
