@@ -37,9 +37,8 @@ jobs:
       - name: Check if commit needs a release upload
         run: |
           if [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "PRERELEASE=''" >> "$GITHUB_ENV"
-            echo "RELEASE_NAME='${{ github.ref_name }}'" >> "$GITHUB_ENV"
-          elif "${{ github.ref }}" = "refs/heads/develop" ]; then
+            echo "RELEASENAME=${{ github.ref_name }}" >> "$GITHUB_ENV"
+          elif [ "${{ github.ref }}" = "refs/heads/develop" ]; then
             echo "PRERELEASE=--prerelease" >> "$GITHUB_ENV"
             echo "RELEASENAME=trunk" >> "$GITHUB_ENV"
           else
@@ -233,9 +232,9 @@ jobs:
           #echo "::endgroup::"
 
       - name: Publish release
-        if: ${{ env.SKIP_UPLOAD != '1' }}
+        if: ${{ env.SKIP_UPLOAD == '' }}
         run: |
-          gh release create "${{ env.RELEASENAME }}" "${{ env.PRERELEASE }}" yggstack-* || gh release upload "${{ env.RELEASENAME }}" yggstack-* --clobber
+          gh release create "${{ env.RELEASENAME }}" ${{ env.PRERELEASE }} yggstack-* || gh release upload "${{ env.RELEASENAME }}" yggstack-* --clobber
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -244,7 +243,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Login to GitHub Container Registry
-        if: ${{ env.SKIP_UPLOAD != '1' }}
+        if: ${{ env.SKIP_UPLOAD == '' }}
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -252,7 +251,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push yggstack container image
-        if: ${{ env.SKIP_UPLOAD != '1' }}
+        if: ${{ env.SKIP_UPLOAD == '' }}
         uses: docker/build-push-action@v6
         with:
           context: .
