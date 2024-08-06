@@ -1,6 +1,9 @@
 name: Trunk / release build
 
 on:
+  pull_request:
+    paths-ignore:
+      - "README.md"
   push:
     branches:
       - develop
@@ -38,11 +41,11 @@ jobs:
         run: |
           if [ "${{ github.ref_type }}" = "tag" ]; then
             echo "RELEASENAME=${{ github.ref_name }}" >> "$GITHUB_ENV"
-          elif [ "${{ github.ref }}" = "refs/heads/develop" ]; then
+          elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/develop" ]; then
             echo "PRERELEASE=--prerelease" >> "$GITHUB_ENV"
             echo "RELEASENAME=trunk" >> "$GITHUB_ENV"
           else
-            echo "Not a tag or develop branch, skipping upload"
+            echo "Not a tag or push to develop branch, skipping upload"
             echo "SKIP_UPLOAD=1" >> "$GITHUB_ENV"
           fi
 
