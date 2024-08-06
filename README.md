@@ -41,7 +41,7 @@ Tagged releases provide packages similar to Yggdrasil.
 If you want to build from source, as opposed to installing one of the pre-built
 packages:
 
-1. Install [Go](https://golang.org) (requires Go 1.17 or later)
+1. Install [Go](https://golang.org) (requires Go 1.22 or later)
 2. Clone this repository
 2. Run `./build`
 
@@ -132,14 +132,37 @@ Unlike mainline Yggdrasil, Yggstack does NOT require privileged access.
 You can even run several Yggstack instances with different configurations
 on the same OS and user!
 
+### External DNS nameservers
+
+If a client tool like `curl` fails to resolve `.ygg` domain, and yggstack prints
+the following warning on start-up:
+
+```
+2024/08/06 03:27:20 DNS nameserver is not set!
+2024/08/06 03:27:20 SOCKS server will not be able to resolve hostnames other than .pk.ygg !
+```
+
+start yggstack pointing to a [DNS server](https://yggdrasil-network.github.io/services.html#dns),
+for example:
+
+```
+yggstack -useconffile ygg-client.conf -nameserver '[324:71e:281a:9ed3::53]:53' -socks 127.0.0.1:9060
+```
+
+and test if resolver works:
+
+```
+curl -x socks5h://127.0.0.1:9060 http://web.mc.ygg
+```
+
 ### pk.ygg DNS resolver
 
 One unique feature of Yggstack is built-in DNS resolver functionality using
-`<publickey>.pk.ygg` format.
+`<publickey>.pk.ygg` format without the need for external DNS nameservers.
 
 For example, HowToYgg website (whose public key is `d40d4a7153cf288ea28f1865f6cfe95143a478b5c8c9e7cb002a0633d10a53eb`)
 can be accessed by any Web browser supporting SOCKS servers
-via  `http://d40d4a7153cf288ea28f1865f6cfe95143a478b5c8c9e7cb002a0633d10a53eb.pk.ygg`
+via `http://d40d4a7153cf288ea28f1865f6cfe95143a478b5c8c9e7cb002a0633d10a53eb.pk.ygg`
 
 You can even use cURL with Yggstack:
 
