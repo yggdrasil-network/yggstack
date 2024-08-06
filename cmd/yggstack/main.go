@@ -465,12 +465,15 @@ func main() {
 				for {
 					bytesRead, remoteUdpAddr, err := udpListenConn.ReadFrom(udpBuffer)
 					if err != nil {
-						if bytesRead == 0 {
-							continue
-						}
+						logger.Debugf("udp readFrom error: %v", err)
+					}
+					if bytesRead == 0 {
+						continue
 					}
 
 					remoteUdpAddrStr := remoteUdpAddr.String()
+
+					var udpSession *UDPSession = nil
 
 					connVal, ok := remoteUdpConnections.Load(remoteUdpAddrStr)
 
@@ -481,17 +484,18 @@ func main() {
 							logger.Errorf("Failed to connect to %s: %s", mapping.Mapped, err)
 							continue
 						}
-						udpSession := &UDPSession{
+						udpSession = &UDPSession{
 							conn:       udpFwdConn,
 							remoteAddr: remoteUdpAddr,
 						}
 						remoteUdpConnections.Store(remoteUdpAddrStr, udpSession)
 						go types.ReverseProxyUDP(mtu, udpListenConn, remoteUdpAddr, udpFwdConn)
-					}
+					} else {
+						udpSession, ok = connVal.(*UDPSession)
 
-					udpSession, ok := connVal.(*UDPSession)
-					if !ok {
-						continue
+						if !ok {
+							continue
+						}
 					}
 
 					udpFwdConnPtr := udpSession.conn.(*net.UDPConn)
