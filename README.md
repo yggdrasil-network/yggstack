@@ -146,13 +146,13 @@ start yggstack pointing to a [DNS server](https://yggdrasil-network.github.io/se
 for example:
 
 ```
-yggstack -useconffile ygg-client.conf -nameserver '[324:71e:281a:9ed3::53]:53' -socks 127.0.0.1:9060
+yggstack -useconffile /path/to/yggdrasil.conf -nameserver '[324:71e:281a:9ed3::53]:53' -socks 127.0.0.1:1080
 ```
 
 and test if resolver works:
 
 ```
-curl -x socks5h://127.0.0.1:9060 http://web.mc.ygg
+curl -x socks5h://127.0.0.1:1080 http://web.mc.ygg
 ```
 
 ### pk.ygg DNS resolver
