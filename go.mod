@@ -9,8 +9,8 @@ require (
 	github.com/hashicorp/go-syslog v1.0.0
 	github.com/hjson/hjson-go/v4 v4.4.0
 	github.com/things-go/go-socks5 v0.0.5
-	github.com/yggdrasil-network/yggdrasil-go v0.5.7
-	gvisor.dev/gvisor v0.0.0-20240805181127-399d7c1526c0
+	github.com/yggdrasil-network/yggdrasil-go v0.5.8
+	gvisor.dev/gvisor v0.0.0-20240810013311-326fe0f2a77f
 )
 
 require (
