@@ -39,7 +39,8 @@ type node struct {
 	core           *core.Core
 	multicast      *multicast.Multicast
 	admin          *admin.AdminSocket
-	socks5Listener net.Listener
+	socks5Tcp      net.Listener
+	socks5Unix     net.Listener
 }
 
 type UDPSession struct {
@@ -306,10 +307,19 @@ func main() {
 			server := socks5.NewServer(socksOptions...)
 			if strings.Contains(*socks, ":") {
 				logger.Infof("Starting SOCKS server on %s", *socks)
-				go server.ListenAndServe("tcp", *socks) // nolint:errcheck
+				n.socks5Tcp, err = net.Listen("tcp", *socks)
+				if err != nil {
+					panic(err)
+				}
+				go func() {
+					err := server.Serve(n.socks5Tcp)
+					if err != nil {
+						panic(err)
+					}
+				}()
 			} else {
 				logger.Infof("Starting SOCKS server with socket file %s", *socks)
-				n.socks5Listener, err = net.Listen("unix", *socks)
+				n.socks5Unix, err = net.Listen("unix", *socks)
 				if err != nil {
 					// If address in use, try connecting to
 					// the socket to see if other yggstack
@@ -330,7 +340,12 @@ func main() {
 						panic(err)
 					}
 				}
-				go server.Serve(n.socks5Listener) // nolint:errcheck
+				go func() {
+					err := server.Serve(n.socks5Unix)
+					if err != nil {
+						panic(err)
+					}
+				}()
 			}
 		}
 	}
@@ -519,10 +534,14 @@ func main() {
 	// Shut down the node.
 	_ = n.admin.Stop()
 	_ = n.multicast.Stop()
-	if n.socks5Listener != nil {
-		_ = n.socks5Listener.Close()
+	if n.socks5Unix != nil {
+		_ = n.socks5Unix.Close()
 		_ = os.RemoveAll(*socks)
-		logger.Infof("Stopped UNIX socket listener")
+		logger.Infof("Stopped SOCKS5 UNIX socket listener")
+	}
+	if n.socks5Tcp != nil {
+		_ = n.socks5Tcp.Close()
+		logger.Infof("Stopped SOCKS5 TCP listener")
 	}
 	n.core.Stop()
 }
