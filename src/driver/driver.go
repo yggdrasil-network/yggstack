@@ -1,4 +1,4 @@
-package main
+package driver
 
 import (
 	"context"
@@ -47,8 +47,7 @@ type UDPSession struct {
 	remoteAddr net.Addr
 }
 
-// The main function is responsible for configuring and starting Yggdrasil.
-func main() {
+func Run(args []string) {
 	var localtcp types.TCPLocalMappings
 	var localudp types.UDPLocalMappings
 	var remotetcp types.TCPRemoteMappings
@@ -72,7 +71,7 @@ func main() {
 	flag.Var(&localudp, "local-udp", "UDP ports to forward to the remote Yggdrasil node, e.g. 22:[a:b:c:d]:2022, 127.0.0.1:[a:b:c:d]:22")
 	flag.Var(&remotetcp, "remote-tcp", "TCP ports to expose to the network, e.g. 22, 2022:22, 22:192.168.1.1:2022")
 	flag.Var(&remoteudp, "remote-udp", "UDP ports to expose to the network, e.g. 22, 2022:22, 22:192.168.1.1:2022")
-	flag.Parse()
+	flag.CommandLine.Parse(args)
 
 	// Catch interrupts from the operating system to exit gracefully.
 	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

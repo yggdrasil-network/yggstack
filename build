@@ -8,8 +8,9 @@ PKGVER=${PKGVER:-$(sh contrib/semver/version.sh --bare)}
 
 LDFLAGS="-X $PKGSRC.buildName=$PKGNAME -X $PKGSRC.buildVersion=$PKGVER"
 ARGS="-v"
+DLL=false
 
-while getopts "utc:l:dro:ps" option
+while getopts "utc:l:dro:psk" option
 do
   case "$option"
   in
@@ -22,6 +23,7 @@ do
   o) ARGS="$ARGS -o $OPTARG";;
   p) ARGS="$ARGS -buildmode=pie";;
   s) ARGS="$ARGS -tags netgo,osusersgo,static" LDFLAGS="$LDFLAGS -extldflags '-static'" CGO_ENABLED=0;;
+  k) DLL=true;;
   esac
 done
 
@@ -29,11 +31,16 @@ if [ -z $TABLES ] && [ -z $DEBUG ]; then
   LDFLAGS="$LDFLAGS -s -w"
 fi
 
-for CMD in yggstack ; do
-  echo "Building: $CMD"
-  go build $ARGS -ldflags="$LDFLAGS" -gcflags="$GCFLAGS" ./cmd/$CMD
+if [ "$DLL" = true ]; then
+  echo "Building: shared library"
+  CGO_ENABLED=1 go build $ARGS -buildmode=c-shared -ldflags="$LDFLAGS" -gcflags="$GCFLAGS" -o yggstack ./pkg/yggstack
+else
+  for CMD in yggstack ; do
+    echo "Building: $CMD"
+    go build $ARGS -ldflags="$LDFLAGS" -gcflags="$GCFLAGS" ./cmd/$CMD
 
-  if [ $UPX ]; then
-    upx --brute $CMD
-  fi
-done
+    if [ $UPX ]; then
+      upx --brute $CMD
+    fi
+  done
+fi
