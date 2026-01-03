@@ -49,15 +49,17 @@ func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) tcpip.Error {
 				Payload: buffer.MakeWithData(nic.readBuf[:rx]),
 			})
 			nic.dispatcher.DeliverNetworkPacket(ipv6.ProtocolNumber, pkb)
+			pkb.DecRef()
 		}
 	}()
 	go func() {
 		for {
-			pkt := <- nic.rstPackets
+			pkt := <-nic.rstPackets
 			if pkt == nil {
 				continue
 			}
 			_ = nic.writePacket(pkt)
+			pkt.DecRef()
 		}
 	}()
 	_, snet, err := net.ParseCIDR("0200::/7")
@@ -142,7 +144,14 @@ func (e *YggdrasilNIC) WritePackets(
 			if pkt.Network().TransportProtocol() == tcp.ProtocolNumber {
 				tcpHeader := header.TCP(pkt.TransportHeader().Slice())
 				if (tcpHeader.Flags() & header.TCPFlagRst) == header.TCPFlagRst {
-					e.rstPackets <- pkt
+					pkt.IncRef()
+					select {
+					case e.rstPackets <- pkt:
+						// Packet queued successfully
+					default:
+						// Channel full, drop packet and release ref
+						pkt.DecRef()
+					}
 					continue
 				}
 			}
