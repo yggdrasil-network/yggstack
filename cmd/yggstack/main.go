@@ -5,48 +5,25 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"net"
 	"os"
 	"os/signal"
-	"regexp"
-	"runtime"
 	"strings"
-	"sync"
 	"syscall"
 
 	"github.com/gologme/log"
 	gsyslog "github.com/hashicorp/go-syslog"
 	"github.com/hjson/hjson-go/v4"
-	"github.com/things-go/go-socks5"
 
 	"github.com/yggdrasil-network/yggdrasil-go/src/address"
-	"github.com/yggdrasil-network/yggdrasil-go/src/admin"
 	"github.com/yggdrasil-network/yggdrasil-go/src/config"
-	"github.com/yggdrasil-network/yggdrasil-go/src/core"
-	"github.com/yggdrasil-network/yggdrasil-go/src/multicast"
 	"github.com/yggdrasil-network/yggdrasil-go/src/version"
 
-	"github.com/yggdrasil-network/yggstack/src/netstack"
+	"github.com/yggdrasil-network/yggstack/mod/yggstack"
 	"github.com/yggdrasil-network/yggstack/src/types"
-
-	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 )
-
-type node struct {
-	core           *core.Core
-	multicast      *multicast.Multicast
-	admin          *admin.AdminSocket
-	socks5Tcp      net.Listener
-	socks5Unix     net.Listener
-}
-
-type UDPSession struct {
-	conn       interface{}
-	remoteAddr net.Addr
-}
 
 // The main function is responsible for configuring and starting Yggdrasil.
 func main() {
@@ -207,364 +184,26 @@ func main() {
 		return
 	}
 
-	n := &node{}
-
-	// Setup the Yggdrasil node itself.
-	{
-		options := []core.SetupOption{
-			core.NodeInfo(cfg.NodeInfo),
-			core.NodeInfoPrivacy(cfg.NodeInfoPrivacy),
-		}
-		for _, addr := range cfg.Listen {
-			options = append(options, core.ListenAddress(addr))
-		}
-		for _, peer := range cfg.Peers {
-			options = append(options, core.Peer{URI: peer})
-		}
-		for intf, peers := range cfg.InterfacePeers {
-			for _, peer := range peers {
-				options = append(options, core.Peer{URI: peer, SourceInterface: intf})
-			}
-		}
-		for _, allowed := range cfg.AllowedPublicKeys {
-			k, err := hex.DecodeString(allowed)
-			if err != nil {
-				panic(err)
-			}
-			options = append(options, core.AllowedPublicKey(k[:]))
-		}
-		if n.core, err = core.New(cfg.Certificate, logger, options...); err != nil {
-			panic(err)
-		}
-		address, subnet := n.core.Address(), n.core.Subnet()
-		publicstr := hex.EncodeToString(n.core.PublicKey())
-		logger.Printf("Your public key is %s", publicstr)
-		logger.Printf("Your IPv6 address is %s", address.String())
-		logger.Printf("Your IPv6 subnet is %s", subnet.String())
-		logger.Printf("Your Yggstack resolver name is %s%s", publicstr, types.NameMappingSuffix)
-	}
-
-	// Setup the admin socket.
-	{
-		options := []admin.SetupOption{
-			admin.ListenAddress(cfg.AdminListen),
-		}
-		if cfg.LogLookups {
-			options = append(options, admin.LogLookups{})
-		}
-		if n.admin, err = admin.New(n.core, logger, options...); err != nil {
-			panic(err)
-		}
-		if n.admin != nil {
-			n.admin.SetupAdminHandlers()
-		}
-	}
-
-	// Setup the multicast module.
-	{
-		options := []multicast.SetupOption{}
-		for _, intf := range cfg.MulticastInterfaces {
-			options = append(options, multicast.MulticastInterface{
-				Regex:    regexp.MustCompile(intf.Regex),
-				Beacon:   intf.Beacon,
-				Listen:   intf.Listen,
-				Port:     intf.Port,
-				Priority: uint8(intf.Priority),
-				Password: intf.Password,
-			})
-		}
-		if n.multicast, err = multicast.New(n.core, logger, options...); err != nil {
-			panic(err)
-		}
-		if n.admin != nil && n.multicast != nil {
-			n.multicast.SetupAdminHandlers(n.admin)
-		}
-	}
-
-	// Setup Yggdrasil netstack
-	s, err := netstack.CreateYggdrasilNetstack(n.core)
+	// Start Yggdrasil node with all services
+	ygg, err := yggstack.New(yggstack.ConfigObj{
+		Ctx:        ctx,
+		Config:     cfg,
+		Logger:     logger,
+		LogLevel:   *loglevel,
+		SocksAddr:  *socks,
+		Nameserver: *nameserver,
+		LocalTCP:   localtcp,
+		LocalUDP:   localudp,
+		RemoteTCP:  remotetcp,
+		RemoteUDP:  remoteudp,
+	})
 	if err != nil {
 		panic(err)
 	}
 
-	// Create SOCKS server
-	{
-		if socks != nil && *socks != "" {
-			socksOptions := []socks5.Option{
-				socks5.WithDial(s.DialContext),
-			}
-			if nameserver != nil {
-				if *nameserver == "" {
-					logger.Infof("DNS nameserver is not set!")
-					logger.Infof("SOCKS server will not be able to resolve hostnames other than .pk.ygg !")
-				}
-				resolver := types.NewNameResolver(s, *nameserver)
-				socksOptions = append(socksOptions, socks5.WithResolver(resolver))
-			}
-			if logger.GetLevel("debug") {
-				socksOptions = append(socksOptions, socks5.WithLogger(logger))
-			}
-			server := socks5.NewServer(socksOptions...)
-			if strings.Contains(*socks, ":") {
-				logger.Infof("Starting SOCKS server on %s", *socks)
-				n.socks5Tcp, err = net.Listen("tcp", *socks)
-				if err != nil {
-					panic(err)
-				}
-				go func() {
-					err := server.Serve(n.socks5Tcp)
-					if err != nil {
-						panic(err)
-					}
-				}()
-			} else {
-				logger.Infof("Starting SOCKS server with socket file %s", *socks)
-				n.socks5Unix, err = net.Listen("unix", *socks)
-				if err != nil {
-					// If address in use, try connecting to
-					// the socket to see if other yggstack
-					// instance is listening on it
-
-					if isErrorAddressAlreadyInUse(err) {
-						_, err = net.Dial("unix", *socks)
-						if err != nil {
-							// Unlink dead socket if not connected
-							err = os.RemoveAll(*socks)
-							if err != nil {
-								panic(err)
-							}
-						} else {
-							panic(fmt.Errorf("Another yggstack instance is listening on socket '%s'", *socks))
-						}
-					} else {
-						panic(err)
-					}
-				}
-				go func() {
-					err := server.Serve(n.socks5Unix)
-					if err != nil {
-						panic(err)
-					}
-				}()
-			}
-		}
-	}
-
-	// Create local TCP mappings (forwarding connections from local port
-	// to remote Yggdrasil node)
-	{
-		for _, mapping := range localtcp {
-			go func(mapping types.TCPMapping) {
-				listener, err := net.ListenTCP("tcp", mapping.Listen)
-				if err != nil {
-					panic(err)
-				}
-				logger.Infof("Mapping local TCP port %d to Yggdrasil %s", mapping.Listen.Port, mapping.Mapped)
-				for {
-					c, err := listener.Accept()
-					if err != nil {
-						panic(err)
-					}
-					r, err := s.DialTCP(mapping.Mapped)
-					if err != nil {
-						logger.Errorf("Failed to connect to %s: %s", mapping.Mapped, err)
-						_ = c.Close()
-						continue
-					}
-					go types.ProxyTCP(n.core.MTU(), c, r)
-				}
-			}(mapping)
-		}
-	}
-
-	// Create local UDP mappings (forwarding connections from local port
-	// to remote Yggdrasil node)
-	{
-		for _, mapping := range localudp {
-			go func(mapping types.UDPMapping) {
-				mtu := n.core.MTU()
-				udpListenConn, err := net.ListenUDP("udp", mapping.Listen)
-				if err != nil {
-					panic(err)
-				}
-				logger.Infof("Mapping local UDP port %d to Yggdrasil %s", mapping.Listen.Port, mapping.Mapped)
-				localUdpConnections := new(sync.Map)
-				udpBuffer := make([]byte, mtu)
-				for {
-					bytesRead, remoteUdpAddr, err := udpListenConn.ReadFrom(udpBuffer)
-					if err != nil {
-						if bytesRead == 0 {
-							continue
-						}
-					}
-
-					remoteUdpAddrStr := remoteUdpAddr.String()
-
-					connVal, ok := localUdpConnections.Load(remoteUdpAddrStr)
-
-					if !ok {
-						logger.Debugf("Creating new session for %s", remoteUdpAddr.String())
-						udpFwdConn, err := s.DialUDP(mapping.Mapped)
-						if err != nil {
-							logger.Errorf("Failed to connect to %s: %s", mapping.Mapped, err)
-							continue
-						}
-						udpSession := &UDPSession{
-							conn:       udpFwdConn,
-							remoteAddr: remoteUdpAddr,
-						}
-						localUdpConnections.Store(remoteUdpAddrStr, udpSession)
-						go types.ReverseProxyUDP(mtu, udpListenConn, remoteUdpAddr, udpFwdConn)
-					}
-
-					udpSession, ok := connVal.(*UDPSession)
-					if !ok {
-						continue
-					}
-
-					udpFwdConnPtr := udpSession.conn.(*gonet.UDPConn)
-					udpFwdConn := *udpFwdConnPtr
-
-					_, err = udpFwdConn.Write(udpBuffer[:bytesRead])
-					if err != nil {
-						logger.Debugf("Cannot write from yggdrasil to udp listener: %q", err)
-						udpFwdConn.Close()
-						localUdpConnections.Delete(remoteUdpAddrStr)
-						continue
-					}
-				}
-			}(mapping)
-		}
-	}
-
-	// Create remote TCP mappings (forwarding connections from Yggdrasil
-	// node to local port)
-	{
-		for _, mapping := range remotetcp {
-			go func(mapping types.TCPMapping) {
-				listener, err := s.ListenTCP(mapping.Listen)
-				if err != nil {
-					panic(err)
-				}
-				logger.Infof("Mapping Yggdrasil TCP port %d to %s", mapping.Listen.Port, mapping.Mapped)
-				for {
-					c, err := listener.Accept()
-					if err != nil {
-						panic(err)
-					}
-					r, err := net.DialTCP("tcp", nil, mapping.Mapped)
-					if err != nil {
-						logger.Errorf("Failed to connect to %s: %s", mapping.Mapped, err)
-						_ = c.Close()
-						continue
-					}
-					go types.ProxyTCP(n.core.MTU(), c, r)
-				}
-			}(mapping)
-		}
-	}
-
-	// Create remote UDP mappings (forwarding connections from Yggdrasil
-	// node to local port)
-	{
-		for _, mapping := range remoteudp {
-			go func(mapping types.UDPMapping) {
-				mtu := n.core.MTU()
-				udpListenConn, err := s.ListenUDP(mapping.Listen)
-				if err != nil {
-					panic(err)
-				}
-				logger.Infof("Mapping Yggdrasil UDP port %d to %s", mapping.Listen.Port, mapping.Mapped)
-				remoteUdpConnections := new(sync.Map)
-				udpBuffer := make([]byte, mtu)
-				for {
-					bytesRead, remoteUdpAddr, err := udpListenConn.ReadFrom(udpBuffer)
-					if err != nil {
-						logger.Debugf("udp readFrom error: %v", err)
-					}
-					if bytesRead == 0 {
-						continue
-					}
-
-					remoteUdpAddrStr := remoteUdpAddr.String()
-
-					var udpSession *UDPSession = nil
-
-					connVal, ok := remoteUdpConnections.Load(remoteUdpAddrStr)
-
-					if !ok {
-						logger.Debugf("Creating new session for %s", remoteUdpAddr.String())
-						udpFwdConn, err := net.DialUDP("udp", nil, mapping.Mapped)
-						if err != nil {
-							logger.Errorf("Failed to connect to %s: %s", mapping.Mapped, err)
-							continue
-						}
-						udpSession = &UDPSession{
-							conn:       udpFwdConn,
-							remoteAddr: remoteUdpAddr,
-						}
-						remoteUdpConnections.Store(remoteUdpAddrStr, udpSession)
-						go types.ReverseProxyUDP(mtu, udpListenConn, remoteUdpAddr, udpFwdConn)
-					} else {
-						udpSession, ok = connVal.(*UDPSession)
-
-						if !ok {
-							continue
-						}
-					}
-
-					udpFwdConnPtr := udpSession.conn.(*net.UDPConn)
-					udpFwdConn := *udpFwdConnPtr
-
-					_, err = udpFwdConn.Write(udpBuffer[:bytesRead])
-					if err != nil {
-						logger.Debugf("Cannot write from yggdrasil to udp listener: %q", err)
-						udpFwdConn.Close()
-						remoteUdpConnections.Delete(remoteUdpAddrStr)
-						continue
-					}
-				}
-			}(mapping)
-		}
-	}
-
 	// Block until we are told to shut down.
 	<-ctx.Done()
-
-	// Shut down the node.
-	_ = n.admin.Stop()
-	_ = n.multicast.Stop()
-	if n.socks5Unix != nil {
-		_ = n.socks5Unix.Close()
-		_ = os.RemoveAll(*socks)
-		logger.Infof("Stopped SOCKS5 UNIX socket listener")
-	}
-	if n.socks5Tcp != nil {
-		_ = n.socks5Tcp.Close()
-		logger.Infof("Stopped SOCKS5 TCP listener")
-	}
-	n.core.Stop()
-}
-
-// Helper to detect if socket address is in use
-// https://stackoverflow.com/a/52152912
-func isErrorAddressAlreadyInUse(err error) bool {
-	var eOsSyscall *os.SyscallError
-	if !errors.As(err, &eOsSyscall) {
-		return false
-	}
-	var errErrno syscall.Errno // doesn't need a "*" (ptr) because it's already a ptr (uintptr)
-	if !errors.As(eOsSyscall, &errErrno) {
-		return false
-	}
-	if errors.Is(errErrno, syscall.EADDRINUSE) {
-		return true
-	}
-	const WSAEADDRINUSE = 10048
-	if runtime.GOOS == "windows" && errErrno == WSAEADDRINUSE {
-		return true
-	}
-	return false
+	ygg.Close()
 }
 
 // Helper to set logging level
