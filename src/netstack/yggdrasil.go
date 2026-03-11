@@ -28,6 +28,7 @@ type YggdrasilNIC struct {
 	readBuf    []byte
 	rstPackets chan *stack.PacketBuffer
 	done       chan struct{}
+	closeOnce  sync.Once
 	logger     core.Logger
 }
 
@@ -35,6 +36,7 @@ func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) (*YggdrasilNIC, tcpi
 	rwc := ipv6rwc.NewReadWriteCloser(ygg)
 	mtu := rwc.MTU()
 	nic := &YggdrasilNIC{
+		stack:      s,
 		ipv6rwc:    rwc,
 		readBuf:    make([]byte, mtu),
 		rstPackets: make(chan *stack.PacketBuffer, 100),
@@ -205,9 +207,11 @@ func (e *YggdrasilNIC) ParseHeader(*stack.PacketBuffer) bool {
 }
 
 func (e *YggdrasilNIC) Close() {
-	close(e.done)
-	e.stack.stack.RemoveNIC(1)
-	e.dispatcher = nil
+	e.closeOnce.Do(func() {
+		close(e.done)
+		e.stack.stack.RemoveNIC(1)
+		e.dispatcher = nil
+	})
 }
 
 func (e *YggdrasilNIC) SetOnCloseAction(func()) {}

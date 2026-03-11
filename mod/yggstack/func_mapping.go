@@ -26,7 +26,9 @@ func (o *Obj) startSocks(cfg ConfigObj) error {
 	}
 	resolver := types.NewNameResolver(o.Netstack, cfg.Nameserver)
 	socksOptions = append(socksOptions, socks5.WithResolver(resolver))
-	socksOptions = append(socksOptions, socks5.WithLogger(o.logger))
+	if cfg.SocksVerbose {
+		socksOptions = append(socksOptions, socks5.WithLogger(o.logger))
+	}
 	server := socks5.NewServer(socksOptions...)
 
 	if strings.Contains(cfg.SocksAddr, ":") {

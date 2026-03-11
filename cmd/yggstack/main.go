@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/gologme/log"
@@ -189,6 +190,7 @@ func main() {
 		Logger:          logger,
 		MulticastLogger: logger,
 		SocksAddr:       *socks,
+		SocksVerbose:    logger.GetLevel("debug"),
 		Nameserver:      *nameserver,
 		LocalTCP:        localtcp,
 		LocalUDP:        localudp,
@@ -208,6 +210,7 @@ func main() {
 
 func setLogLevel(loglevel string, logger *log.Logger) {
 	levels := [...]string{"error", "warn", "info", "debug", "trace"}
+	loglevel = strings.TrimSpace(strings.ToLower(loglevel))
 
 	found := false
 	for _, lvl := range levels {

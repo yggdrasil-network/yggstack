@@ -23,8 +23,9 @@ type ConfigObj struct {
 	MulticastLogger *golog.Logger
 
 	// SOCKS5: TCP address (":1080") or UNIX socket path ("/tmp/yggstack.sock")
-	SocksAddr  string
-	Nameserver string
+	SocksAddr    string
+	Nameserver   string
+	SocksVerbose bool
 
 	// Port forwarding
 	LocalTCP  []types.TCPMapping
