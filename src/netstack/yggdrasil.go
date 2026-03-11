@@ -3,6 +3,7 @@ package netstack
 import (
 	"log"
 	"net"
+	"sync"
 
 	"github.com/yggdrasil-network/yggdrasil-go/src/core"
 	"github.com/yggdrasil-network/yggdrasil-go/src/ipv6rwc"
@@ -15,12 +16,17 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 )
 
+// // // // // // // // // //
+
+var writeBufPool = sync.Pool{
+	New: func() interface{} { return make([]byte, 65535) },
+}
+
 type YggdrasilNIC struct {
 	stack      *YggdrasilNetstack
 	ipv6rwc    *ipv6rwc.ReadWriteCloser
 	dispatcher stack.NetworkDispatcher
 	readBuf    []byte
-	writeBuf   []byte
 	rstPackets chan *stack.PacketBuffer
 }
 
@@ -30,7 +36,6 @@ func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) tcpip.Error {
 	nic := &YggdrasilNIC{
 		ipv6rwc:    rwc,
 		readBuf:    make([]byte, mtu),
-		writeBuf:   make([]byte, mtu),
 		rstPackets: make(chan *stack.PacketBuffer, 100),
 	}
 	if err := s.stack.CreateNIC(1, nic); err != nil {
@@ -53,7 +58,7 @@ func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) tcpip.Error {
 	}()
 	go func() {
 		for {
-			pkt := <- nic.rstPackets
+			pkt := <-nic.rstPackets
 			if pkt == nil {
 				continue
 			}
@@ -116,16 +121,18 @@ func (e *YggdrasilNIC) writePacket(
 	// parser in ToView() gets confused on some packets
 	// without payload and panics
 	defer func() {
-		r := recover()
-		if r != nil {
+		if r := recover(); r != nil {
+			log.Println("writePacket panic:", r)
 		}
 	}()
+	buf := writeBufPool.Get().([]byte)
+	defer writeBufPool.Put(buf)
 	vv := pkt.ToView()
-	n, err := vv.Read(e.writeBuf)
+	n, err := vv.Read(buf)
 	if err != nil {
 		return &tcpip.ErrAborted{}
 	}
-	_, err = e.ipv6rwc.Write(e.writeBuf[:n])
+	_, err = e.ipv6rwc.Write(buf[:n])
 	if err != nil {
 		return &tcpip.ErrAborted{}
 	}
@@ -135,8 +142,6 @@ func (e *YggdrasilNIC) writePacket(
 func (e *YggdrasilNIC) WritePackets(
 	list stack.PacketBufferList,
 ) (int, tcpip.Error) {
-	var i int = 0
-	var err tcpip.Error = nil
 	for i, pkt := range list.AsSlice() {
 		if pkt.Data().Size() == 0 {
 			if pkt.Network().TransportProtocol() == tcp.ProtocolNumber {
@@ -147,14 +152,13 @@ func (e *YggdrasilNIC) WritePackets(
 				}
 			}
 		}
-		err = e.writePacket(pkt)
-		if err != nil {
+		if err := e.writePacket(pkt); err != nil {
 			log.Println(err)
-			return i - 1, err
+			return i, err
 		}
 	}
 
-	return i, nil
+	return list.Len(), nil
 }
 
 func (e *YggdrasilNIC) WriteRawPacket(*stack.PacketBuffer) tcpip.Error {

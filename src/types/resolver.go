@@ -60,11 +60,9 @@ func (r *NameResolver) Resolve(ctx context.Context, name string) (context.Contex
 	if ip == nil {
 		addrs, err := r.resolver.LookupIP(ctx, "ip6", name)
 		if err != nil {
-			fmt.Println("failed to lookup", name, "due to error:", err)
 			return nil, nil, fmt.Errorf("failed to lookup %q: %s", name, err)
 		}
 		if len(addrs) == 0 {
-			fmt.Println("failed to lookup", name, "due to no addresses")
 			return nil, nil, fmt.Errorf("no addresses for %q", name)
 		}
 		return ctx, addrs[0], nil

@@ -66,7 +66,7 @@ func parseMappingString(value string) (first_address string, first_port int, sec
 			return "", 0, "", 0, fmt.Errorf("Malformed mapping spec '%s'", value)
 		}
 		second_address, second_port_string, err = net.SplitHostPort(
-			tokens[0] + ":" + tokens[1])
+			tokens[2] + ":" + tokens[3])
 		if err != nil {
 			return "", 0, "", 0, fmt.Errorf("Malformed mapping spec '%s'", value)
 		}
