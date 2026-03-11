@@ -18,7 +18,6 @@ func tcpProxyFunc(mtu uint64, dst, src net.Conn) error {
 			}
 		}
 	}
-	return nil
 }
 
 func ProxyTCP(mtu uint64, c1, c2 net.Conn) error {

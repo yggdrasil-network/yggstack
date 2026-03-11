@@ -18,5 +18,4 @@ func ReverseProxyUDP(mtu uint64, dst net.PacketConn, dstAddr net.Addr, src net.C
 			}
 		}
 	}
-	return nil
 }

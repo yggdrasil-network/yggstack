@@ -1,7 +1,6 @@
 package netstack
 
 import (
-	"log"
 	"net"
 	"sync"
 
@@ -28,6 +27,7 @@ type YggdrasilNIC struct {
 	dispatcher stack.NetworkDispatcher
 	readBuf    []byte
 	rstPackets chan *stack.PacketBuffer
+	logger     core.Logger
 }
 
 func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) tcpip.Error {
@@ -37,6 +37,7 @@ func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) tcpip.Error {
 		ipv6rwc:    rwc,
 		readBuf:    make([]byte, mtu),
 		rstPackets: make(chan *stack.PacketBuffer, 100),
+		logger:     s.logger,
 	}
 	if err := s.stack.CreateNIC(1, nic); err != nil {
 		return err
@@ -47,7 +48,7 @@ func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) tcpip.Error {
 		for {
 			rx, err = nic.ipv6rwc.Read(nic.readBuf)
 			if err != nil {
-				log.Println(err)
+				nic.logger.Println(err)
 				break
 			}
 			pkb := stack.NewPacketBuffer(stack.PacketBufferOptions{
@@ -122,7 +123,7 @@ func (e *YggdrasilNIC) writePacket(
 	// without payload and panics
 	defer func() {
 		if r := recover(); r != nil {
-			log.Println("writePacket panic:", r)
+			e.logger.Println("writePacket panic:", r)
 		}
 	}()
 	buf := writeBufPool.Get().([]byte)
@@ -153,7 +154,7 @@ func (e *YggdrasilNIC) WritePackets(
 			}
 		}
 		if err := e.writePacket(pkt); err != nil {
-			log.Println(err)
+			e.logger.Println(err)
 			return i, err
 		}
 	}

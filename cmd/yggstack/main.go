@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/gologme/log"
@@ -189,7 +188,6 @@ func main() {
 		Ctx:        ctx,
 		Config:     cfg,
 		Logger:     logger,
-		LogLevel:   *loglevel,
 		SocksAddr:  *socks,
 		Nameserver: *nameserver,
 		LocalTCP:   localtcp,
@@ -206,28 +204,26 @@ func main() {
 	ygg.Close()
 }
 
-// Helper to set logging level
+// //
+
 func setLogLevel(loglevel string, logger *log.Logger) {
 	levels := [...]string{"error", "warn", "info", "debug", "trace"}
-	loglevel = strings.ToLower(loglevel)
 
-	contains := func() bool {
-		for _, l := range levels {
-			if l == loglevel {
-				return true
-			}
+	found := false
+	for _, lvl := range levels {
+		if lvl == loglevel {
+			found = true
+			break
 		}
-		return false
 	}
-
-	if !contains() { // set default log level
+	if !found {
 		logger.Infoln("Loglevel parse failed. Set default level(info)")
 		loglevel = "info"
 	}
 
-	for _, l := range levels {
-		logger.EnableLevel(l)
-		if l == loglevel {
+	for _, lvl := range levels {
+		logger.EnableLevel(lvl)
+		if lvl == loglevel {
 			break
 		}
 	}

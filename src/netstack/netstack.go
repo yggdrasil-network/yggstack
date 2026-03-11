@@ -17,28 +17,34 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
 )
 
+// // // // // // // // // //
+
 type YggdrasilNetstack struct {
-	stack *stack.Stack
+	stack  *stack.Stack
+	logger core.Logger
 }
 
-func CreateYggdrasilNetstack(ygg *core.Core) (*YggdrasilNetstack, error) {
+func CreateYggdrasilNetstack(ygg *core.Core, log core.Logger) (*YggdrasilNetstack, error) {
 	s := &YggdrasilNetstack{
 		stack: stack.New(stack.Options{
 			NetworkProtocols:   []stack.NetworkProtocolFactory{ipv6.NewProtocol},
 			TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol, icmp.NewProtocol6},
 			HandleLocal:        true,
 		}),
+		logger: log,
 	}
 	if s.stack.HandleLocal() {
 		s.stack.AllowICMPMessage()
 	} else if err := s.stack.SetForwardingDefaultAndAllNICs(ipv6.ProtocolNumber, true); err != nil {
-		panic(err)
+		return nil, fmt.Errorf("SetForwardingDefaultAndAllNICs: %s", err.String())
 	}
 	if err := s.NewYggdrasilNIC(ygg); err != nil {
 		return nil, fmt.Errorf("s.NewYggdrasilNIC: %s", err.String())
 	}
 	return s, nil
 }
+
+// //
 
 func convertToFullAddr(ip net.IP, port int) (tcpip.FullAddress, tcpip.NetworkProtocolNumber, error) {
 	addr := tcpip.Address{}
@@ -66,6 +72,8 @@ func convertToFullAddrFromString(endpoint string) (tcpip.FullAddress, tcpip.Netw
 	}
 	return convertToFullAddr(net.ParseIP(host), pn)
 }
+
+// //
 
 func (s *YggdrasilNetstack) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	fa, pn, err := convertToFullAddrFromString(address)

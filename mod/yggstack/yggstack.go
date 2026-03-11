@@ -10,8 +10,9 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
-	"github.com/gologme/log"
+	golog "github.com/gologme/log"
 	"github.com/yggdrasil-network/yggdrasil-go/src/admin"
 	"github.com/yggdrasil-network/yggdrasil-go/src/config"
 	"github.com/yggdrasil-network/yggdrasil-go/src/core"
@@ -35,20 +36,19 @@ func New(cfg ConfigObj) (_ *Obj, retErr error) {
 		nodeCfg.AdminListen = "none"
 	}
 
-	logger := cfg.Logger
-	if logger == nil {
-		logger = log.New(io.Discard, "", 0)
+	log := cfg.Logger
+	if log == nil {
+		log = noopLoggerObj{}
 	}
-	if cfg.LogLevel != "" {
-		setLogLevel(cfg.LogLevel, logger)
-	} else {
-		setLogLevel("info", logger)
+
+	if cfg.UDPSessionTimeout == 0 {
+		cfg.UDPSessionTimeout = 120 * time.Second
 	}
 
 	obj := &Obj{
 		cancel:    cancel,
 		socksAddr: cfg.SocksAddr,
-		logger:    logger,
+		logger:    log,
 	}
 
 	// Cleanup on initialization error
@@ -95,15 +95,15 @@ func New(cfg ConfigObj) (_ *Obj, retErr error) {
 			options = append(options, core.AllowedPublicKey(k[:]))
 		}
 		var err error
-		if obj.Core, err = core.New(nodeCfg.Certificate, logger, options...); err != nil {
+		if obj.Core, err = core.New(nodeCfg.Certificate, log, options...); err != nil {
 			return nil, fmt.Errorf("core.New: %w", err)
 		}
 		pk := hex.EncodeToString(obj.Core.PublicKey())
 		subnet := obj.Core.Subnet()
-		logger.Printf("Your public key is %s", pk)
-		logger.Printf("Your IPv6 address is %s", obj.Core.Address().String())
-		logger.Printf("Your IPv6 subnet is %s", subnet.String())
-		logger.Printf("Your Yggstack resolver name is %s%s", pk, types.NameMappingSuffix)
+		log.Printf("Your public key is %s", pk)
+		log.Printf("Your IPv6 address is %s", obj.Core.Address().String())
+		log.Printf("Your IPv6 subnet is %s", subnet.String())
+		log.Printf("Your Yggstack resolver name is %s%s", pk, types.NameMappingSuffix)
 	}
 
 	// Admin socket
@@ -115,7 +115,7 @@ func New(cfg ConfigObj) (_ *Obj, retErr error) {
 			options = append(options, admin.LogLookups{})
 		}
 		var err error
-		if obj.Admin, err = admin.New(obj.Core, logger, options...); err != nil {
+		if obj.Admin, err = admin.New(obj.Core, log, options...); err != nil {
 			return nil, fmt.Errorf("admin.New: %w", err)
 		}
 		if obj.Admin != nil {
@@ -136,8 +136,13 @@ func New(cfg ConfigObj) (_ *Obj, retErr error) {
 				Password: intf.Password,
 			})
 		}
+		// multicast.New requires *log.Logger — type assertion or discard
+		mcastLog, ok := log.(*golog.Logger)
+		if !ok {
+			mcastLog = golog.New(io.Discard, "", 0)
+		}
 		var err error
-		if obj.Multicast, err = multicast.New(obj.Core, logger, options...); err != nil {
+		if obj.Multicast, err = multicast.New(obj.Core, mcastLog, options...); err != nil {
 			return nil, fmt.Errorf("multicast.New: %w", err)
 		}
 		if obj.Admin != nil && obj.Multicast != nil {
@@ -148,7 +153,7 @@ func New(cfg ConfigObj) (_ *Obj, retErr error) {
 	// Netstack
 	{
 		var err error
-		if obj.Netstack, err = netstack.CreateYggdrasilNetstack(obj.Core); err != nil {
+		if obj.Netstack, err = netstack.CreateYggdrasilNetstack(obj.Core, log); err != nil {
 			return nil, fmt.Errorf("netstack.CreateYggdrasilNetstack: %w", err)
 		}
 	}
@@ -162,9 +167,9 @@ func New(cfg ConfigObj) (_ *Obj, retErr error) {
 
 	// Port forwarding
 	obj.startLocalTCP(cfg.LocalTCP)
-	obj.startLocalUDP(cfg.LocalUDP)
+	obj.startLocalUDP(cfg.LocalUDP, cfg.UDPSessionTimeout)
 	obj.startRemoteTCP(cfg.RemoteTCP)
-	obj.startRemoteUDP(cfg.RemoteUDP)
+	obj.startRemoteUDP(cfg.RemoteUDP, cfg.UDPSessionTimeout)
 
 	// Shutdown on context cancellation
 	go func() {
@@ -190,6 +195,12 @@ func (o *Obj) Close() error {
 				o.logger.Infof("Stopped SOCKS5 TCP listener")
 			}
 		}
+		// Port forwarding listeners
+		o.closersMu.Lock()
+		for _, c := range o.closers {
+			_ = c.Close()
+		}
+		o.closersMu.Unlock()
 		if o.Multicast != nil {
 			_ = o.Multicast.Stop()
 		}
@@ -200,6 +211,8 @@ func (o *Obj) Close() error {
 	})
 	return nil
 }
+
+// //
 
 // Address returns the node's IPv6 address
 func (o *Obj) Address() net.IP {

@@ -254,6 +254,7 @@ func (m *TCPRemoteMappings) Set(value string) error {
 		},
 	}
 
+	// NOTE: Dead branch — first_address is guaranteed empty here (non-empty case returns error on line 241-243)
 	if first_address != "" {
 		listenaddr := net.ParseIP(first_address)
 		if listenaddr == nil {
@@ -366,6 +367,7 @@ func (m *UDPRemoteMappings) Set(value string) error {
 		},
 	}
 
+	// NOTE: Dead branch — first_address is guaranteed empty here (non-empty case returns error on line 353-355)
 	if first_address != "" {
 		listenaddr := net.ParseIP(first_address)
 		if listenaddr == nil {

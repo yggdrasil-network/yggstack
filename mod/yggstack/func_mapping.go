@@ -6,10 +6,11 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/things-go/go-socks5"
+
 	"github.com/yggdrasil-network/yggstack/src/types"
-	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 )
 
 // // // // // // // // // //
@@ -24,9 +25,7 @@ func (o *Obj) startSocks(cfg ConfigObj) error {
 	}
 	resolver := types.NewNameResolver(o.Netstack, cfg.Nameserver)
 	socksOptions = append(socksOptions, socks5.WithResolver(resolver))
-	if o.logger.GetLevel("debug") {
-		socksOptions = append(socksOptions, socks5.WithLogger(o.logger))
-	}
+	socksOptions = append(socksOptions, socks5.WithLogger(o.logger))
 	server := socks5.NewServer(socksOptions...)
 
 	if strings.Contains(cfg.SocksAddr, ":") {
@@ -70,7 +69,7 @@ func (o *Obj) startSocks(cfg ConfigObj) error {
 	return nil
 }
 
-//
+// //
 
 func (o *Obj) startLocalTCP(mappings []types.TCPMapping) {
 	for _, mapping := range mappings {
@@ -80,6 +79,7 @@ func (o *Obj) startLocalTCP(mappings []types.TCPMapping) {
 				o.logger.Errorf("Failed to listen on local TCP %s: %s", m.Listen, err)
 				return
 			}
+			o.addCloser(listener)
 			o.logger.Infof("Mapping local TCP port %d to Yggdrasil %s", m.Listen.Port, m.Mapped)
 			for {
 				c, err := listener.Accept()
@@ -99,7 +99,9 @@ func (o *Obj) startLocalTCP(mappings []types.TCPMapping) {
 	}
 }
 
-func (o *Obj) startLocalUDP(mappings []types.UDPMapping) {
+// //
+
+func (o *Obj) startLocalUDP(mappings []types.UDPMapping, sessionTimeout time.Duration) {
 	for _, mapping := range mappings {
 		go func(m types.UDPMapping) {
 			mtu := o.Core.MTU()
@@ -108,8 +110,13 @@ func (o *Obj) startLocalUDP(mappings []types.UDPMapping) {
 				o.logger.Errorf("Failed to listen on local UDP %s: %s", m.Listen, err)
 				return
 			}
+			o.addCloser(udpListenConn)
 			o.logger.Infof("Mapping local UDP port %d to Yggdrasil %s", m.Listen.Port, m.Mapped)
 			connections := new(sync.Map)
+
+			// Inactive session cleanup goroutine
+			go o.cleanupUDPSessions(connections, sessionTimeout)
+
 			buf := make([]byte, mtu)
 			for {
 				n, remoteAddr, err := udpListenConn.ReadFrom(buf)
@@ -120,6 +127,8 @@ func (o *Obj) startLocalUDP(mappings []types.UDPMapping) {
 				}
 
 				key := remoteAddr.String()
+				var session *udpSessionObj
+
 				connVal, ok := connections.Load(key)
 
 				if !ok {
@@ -129,26 +138,25 @@ func (o *Obj) startLocalUDP(mappings []types.UDPMapping) {
 						o.logger.Errorf("Failed to connect to %s: %s", m.Mapped, err)
 						continue
 					}
-					session := &udpSessionObj{
+					session = &udpSessionObj{
 						conn:       fwdConn,
 						remoteAddr: remoteAddr,
 					}
+					session.lastActivity.Store(time.Now().Unix())
 					connections.Store(key, session)
 					go types.ReverseProxyUDP(mtu, udpListenConn, remoteAddr, fwdConn)
+				} else {
+					session, ok = connVal.(*udpSessionObj)
+					if !ok {
+						continue
+					}
 				}
 
-				session, ok := connVal.(*udpSessionObj)
-				if !ok {
-					continue
-				}
-
-				fwdConnPtr := session.conn.(*gonet.UDPConn)
-				fwdConn := *fwdConnPtr
-
-				_, err = fwdConn.Write(buf[:n])
+				session.lastActivity.Store(time.Now().Unix())
+				_, err = session.conn.Write(buf[:n])
 				if err != nil {
 					o.logger.Debugf("Cannot write from yggdrasil to udp listener: %q", err)
-					fwdConn.Close()
+					_ = session.conn.Close()
 					connections.Delete(key)
 					continue
 				}
@@ -156,6 +164,8 @@ func (o *Obj) startLocalUDP(mappings []types.UDPMapping) {
 		}(mapping)
 	}
 }
+
+// //
 
 func (o *Obj) startRemoteTCP(mappings []types.TCPMapping) {
 	for _, mapping := range mappings {
@@ -165,6 +175,7 @@ func (o *Obj) startRemoteTCP(mappings []types.TCPMapping) {
 				o.logger.Errorf("Failed to listen on Yggdrasil TCP %s: %s", m.Listen, err)
 				return
 			}
+			o.addCloser(listener)
 			o.logger.Infof("Mapping Yggdrasil TCP port %d to %s", m.Listen.Port, m.Mapped)
 			for {
 				c, err := listener.Accept()
@@ -184,7 +195,9 @@ func (o *Obj) startRemoteTCP(mappings []types.TCPMapping) {
 	}
 }
 
-func (o *Obj) startRemoteUDP(mappings []types.UDPMapping) {
+// //
+
+func (o *Obj) startRemoteUDP(mappings []types.UDPMapping, sessionTimeout time.Duration) {
 	for _, mapping := range mappings {
 		go func(m types.UDPMapping) {
 			mtu := o.Core.MTU()
@@ -193,8 +206,13 @@ func (o *Obj) startRemoteUDP(mappings []types.UDPMapping) {
 				o.logger.Errorf("Failed to listen on Yggdrasil UDP %s: %s", m.Listen, err)
 				return
 			}
+			o.addCloser(udpListenConn)
 			o.logger.Infof("Mapping Yggdrasil UDP port %d to %s", m.Listen.Port, m.Mapped)
 			connections := new(sync.Map)
+
+			// Inactive session cleanup goroutine
+			go o.cleanupUDPSessions(connections, sessionTimeout)
+
 			buf := make([]byte, mtu)
 			for {
 				n, remoteAddr, err := udpListenConn.ReadFrom(buf)
@@ -221,6 +239,7 @@ func (o *Obj) startRemoteUDP(mappings []types.UDPMapping) {
 						conn:       fwdConn,
 						remoteAddr: remoteAddr,
 					}
+					session.lastActivity.Store(time.Now().Unix())
 					connections.Store(key, session)
 					go types.ReverseProxyUDP(mtu, udpListenConn, remoteAddr, fwdConn)
 				} else {
@@ -230,17 +249,38 @@ func (o *Obj) startRemoteUDP(mappings []types.UDPMapping) {
 					}
 				}
 
-				fwdConnPtr := session.conn.(*net.UDPConn)
-				fwdConn := *fwdConnPtr
-
-				_, err = fwdConn.Write(buf[:n])
+				session.lastActivity.Store(time.Now().Unix())
+				_, err = session.conn.Write(buf[:n])
 				if err != nil {
 					o.logger.Debugf("Cannot write from yggdrasil to udp listener: %q", err)
-					fwdConn.Close()
+					_ = session.conn.Close()
 					connections.Delete(key)
 					continue
 				}
 			}
 		}(mapping)
+	}
+}
+
+// //
+
+func (o *Obj) cleanupUDPSessions(connections *sync.Map, timeout time.Duration) {
+	ticker := time.NewTicker(timeout / 4)
+	defer ticker.Stop()
+	for range ticker.C {
+		now := time.Now().Unix()
+		connections.Range(func(key, value interface{}) bool {
+			session, ok := value.(*udpSessionObj)
+			if !ok {
+				connections.Delete(key)
+				return true
+			}
+			if now-session.lastActivity.Load() > int64(timeout.Seconds()) {
+				o.logger.Debugf("Cleaning up inactive UDP session %s", key)
+				_ = session.conn.Close()
+				connections.Delete(key)
+			}
+			return true
+		})
 	}
 }

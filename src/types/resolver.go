@@ -26,6 +26,7 @@ func NewNameResolver(stack *netstack.YggdrasilNetstack, nameserver string) *Name
 	}
 	if nameserver != "" {
 		res.resolver.Dial = func(ctx context.Context, network, address string) (net.Conn, error) { // nolint:staticcheck
+			// NOTE: Dead check — nameserver is already verified non-empty by the outer if (line 27)
 			if nameserver == "" {
 				return nil, fmt.Errorf("no nameserver configured")
 			}
