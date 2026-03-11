@@ -64,6 +64,7 @@ func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) (*YggdrasilNIC, tcpi
 				Payload: buffer.MakeWithData(nic.readBuf[:rx]),
 			})
 			nic.dispatcher.DeliverNetworkPacket(ipv6.ProtocolNumber, pkb)
+			pkb.DecRef()
 		}
 	}()
 
@@ -78,6 +79,7 @@ func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) (*YggdrasilNIC, tcpi
 					continue
 				}
 				_ = nic.writePacket(pkt)
+				pkt.DecRef()
 			}
 		}
 	}()
@@ -166,7 +168,12 @@ func (e *YggdrasilNIC) WritePackets(
 			if pkt.Network().TransportProtocol() == tcp.ProtocolNumber {
 				tcpHeader := header.TCP(pkt.TransportHeader().Slice())
 				if (tcpHeader.Flags() & header.TCPFlagRst) == header.TCPFlagRst {
-					e.rstPackets <- pkt
+					pkt.IncRef()
+					select {
+					case e.rstPackets <- pkt:
+					default:
+						pkt.DecRef()
+					}
 					continue
 				}
 			}
