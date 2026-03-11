@@ -5,14 +5,12 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"regexp"
 	"strings"
 	"time"
 
-	golog "github.com/gologme/log"
 	"github.com/yggdrasil-network/yggdrasil-go/src/admin"
 	"github.com/yggdrasil-network/yggdrasil-go/src/config"
 	"github.com/yggdrasil-network/yggdrasil-go/src/core"
@@ -46,14 +44,18 @@ func New(cfg ConfigObj) (_ *Obj, retErr error) {
 	}
 
 	obj := &Obj{
+		ctx:       ctx,
 		cancel:    cancel,
 		socksAddr: cfg.SocksAddr,
 		logger:    log,
 	}
 
-	// Cleanup on initialization error
+	// Rollback on initialization error
 	defer func() {
 		if retErr != nil {
+			if obj.Netstack != nil {
+				obj.Netstack.Close()
+			}
 			if obj.socksListener != nil {
 				_ = obj.socksListener.Close()
 			}
@@ -123,9 +125,9 @@ func New(cfg ConfigObj) (_ *Obj, retErr error) {
 		}
 	}
 
-	// Multicast
-	{
-		options := []multicast.SetupOption{}
+	// Multicast (optional, requires MulticastLogger)
+	if cfg.MulticastLogger != nil {
+		var options []multicast.SetupOption
 		for _, intf := range nodeCfg.MulticastInterfaces {
 			options = append(options, multicast.MulticastInterface{
 				Regex:    regexp.MustCompile(intf.Regex),
@@ -136,13 +138,8 @@ func New(cfg ConfigObj) (_ *Obj, retErr error) {
 				Password: intf.Password,
 			})
 		}
-		// multicast.New requires *log.Logger — type assertion or discard
-		mcastLog, ok := log.(*golog.Logger)
-		if !ok {
-			mcastLog = golog.New(io.Discard, "", 0)
-		}
 		var err error
-		if obj.Multicast, err = multicast.New(obj.Core, mcastLog, options...); err != nil {
+		if obj.Multicast, err = multicast.New(obj.Core, cfg.MulticastLogger, options...); err != nil {
 			return nil, fmt.Errorf("multicast.New: %w", err)
 		}
 		if obj.Admin != nil && obj.Multicast != nil {
@@ -166,10 +163,10 @@ func New(cfg ConfigObj) (_ *Obj, retErr error) {
 	}
 
 	// Port forwarding
-	obj.startLocalTCP(cfg.LocalTCP)
-	obj.startLocalUDP(cfg.LocalUDP, cfg.UDPSessionTimeout)
-	obj.startRemoteTCP(cfg.RemoteTCP)
-	obj.startRemoteUDP(cfg.RemoteUDP, cfg.UDPSessionTimeout)
+	obj.startLocalTCP(ctx, cfg.LocalTCP)
+	obj.startLocalUDP(ctx, cfg.LocalUDP, cfg.UDPSessionTimeout)
+	obj.startRemoteTCP(ctx, cfg.RemoteTCP)
+	obj.startRemoteUDP(ctx, cfg.RemoteUDP, cfg.UDPSessionTimeout)
 
 	// Shutdown on context cancellation
 	go func() {
@@ -201,6 +198,9 @@ func (o *Obj) Close() error {
 			_ = c.Close()
 		}
 		o.closersMu.Unlock()
+		if o.Netstack != nil {
+			o.Netstack.Close()
+		}
 		if o.Multicast != nil {
 			_ = o.Multicast.Stop()
 		}
@@ -214,18 +214,37 @@ func (o *Obj) Close() error {
 
 // //
 
-// Address returns the node's IPv6 address
 func (o *Obj) Address() net.IP {
 	addr := o.Core.Address()
 	return net.IP(addr[:])
 }
 
-// Subnet returns the node's IPv6 subnet
 func (o *Obj) Subnet() net.IPNet {
 	return o.Core.Subnet()
 }
 
-// PublicKey returns the node's public key
 func (o *Obj) PublicKey() ed25519.PublicKey {
 	return o.Core.PublicKey()
+}
+
+// //
+
+func (o *Obj) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	return o.Netstack.DialContext(ctx, network, address)
+}
+
+func (o *Obj) DialTCP(addr *net.TCPAddr) (net.Conn, error) {
+	return o.Netstack.DialTCP(addr)
+}
+
+func (o *Obj) DialUDP(addr *net.UDPAddr) (net.Conn, error) {
+	return o.Netstack.DialUDP(addr)
+}
+
+func (o *Obj) ListenTCP(addr *net.TCPAddr) (net.Listener, error) {
+	return o.Netstack.ListenTCP(addr)
+}
+
+func (o *Obj) ListenUDP(addr *net.UDPAddr) (net.PacketConn, error) {
+	return o.Netstack.ListenUDP(addr)
 }

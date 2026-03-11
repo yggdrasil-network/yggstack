@@ -183,17 +183,17 @@ func main() {
 		return
 	}
 
-	// Start Yggdrasil node with all services
 	ygg, err := yggstack.New(yggstack.ConfigObj{
-		Ctx:        ctx,
-		Config:     cfg,
-		Logger:     logger,
-		SocksAddr:  *socks,
-		Nameserver: *nameserver,
-		LocalTCP:   localtcp,
-		LocalUDP:   localudp,
-		RemoteTCP:  remotetcp,
-		RemoteUDP:  remoteudp,
+		Ctx:             ctx,
+		Config:          cfg,
+		Logger:          logger,
+		MulticastLogger: logger,
+		SocksAddr:       *socks,
+		Nameserver:      *nameserver,
+		LocalTCP:        localtcp,
+		LocalUDP:        localudp,
+		RemoteTCP:       remotetcp,
+		RemoteUDP:       remoteudp,
 	})
 	if err != nil {
 		panic(err)

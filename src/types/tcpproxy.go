@@ -1,41 +1,20 @@
 package types
 
 import (
+	"io"
 	"net"
 )
 
-func tcpProxyFunc(mtu uint64, dst, src net.Conn) error {
-	buf := make([]byte, mtu)
-	for {
-		n, err := src.Read(buf[:])
-		if err != nil {
-			return err
-		}
-		if n > 0 {
-			n, err = dst.Write(buf[:n])
-			if err != nil {
-				return err
-			}
-		}
-	}
-}
+// // // // // // // // // //
 
-func ProxyTCP(mtu uint64, c1, c2 net.Conn) error {
-	// Start proxying
+func ProxyTCP(c1, c2 net.Conn) {
 	errCh := make(chan error, 2)
-	go func() { errCh <- tcpProxyFunc(mtu, c1, c2) }()
-	go func() { errCh <- tcpProxyFunc(mtu, c2, c1) }()
+	go func() { _, err := io.Copy(c1, c2); errCh <- err }()
+	go func() { _, err := io.Copy(c2, c1); errCh <- err }()
 
-	// Wait
-	for i := 0; i < 2; i++ {
-		e := <-errCh
-		if e != nil {
-			// Close connections and return
-			c1.Close()
-			c2.Close()
-			return e
-		}
-	}
-
-	return nil
+	// Wait for one direction to finish, close both
+	<-errCh
+	_ = c1.Close()
+	_ = c2.Close()
+	<-errCh
 }

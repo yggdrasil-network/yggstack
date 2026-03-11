@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	golog "github.com/gologme/log"
+
 	"github.com/yggdrasil-network/yggdrasil-go/src/config"
 	"github.com/yggdrasil-network/yggdrasil-go/src/core"
 
@@ -16,6 +18,9 @@ type ConfigObj struct {
 	Ctx    context.Context
 	Config *config.NodeConfig
 	Logger core.Logger
+
+	// TODO: switch to core.Logger when multicast.New() accepts an interface instead of *log.Logger
+	MulticastLogger *golog.Logger
 
 	// SOCKS5: TCP address (":1080") or UNIX socket path ("/tmp/yggstack.sock")
 	SocksAddr  string

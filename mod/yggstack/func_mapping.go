@@ -1,6 +1,7 @@
 package yggstack
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -69,9 +70,7 @@ func (o *Obj) startSocks(cfg ConfigObj) error {
 	return nil
 }
 
-// //
-
-func (o *Obj) startLocalTCP(mappings []types.TCPMapping) {
+func (o *Obj) startLocalTCP(ctx context.Context, mappings []types.TCPMapping) {
 	for _, mapping := range mappings {
 		go func(m types.TCPMapping) {
 			listener, err := net.ListenTCP("tcp", m.Listen)
@@ -84,6 +83,9 @@ func (o *Obj) startLocalTCP(mappings []types.TCPMapping) {
 			for {
 				c, err := listener.Accept()
 				if err != nil {
+					if ctx.Err() != nil {
+						return
+					}
 					o.logger.Errorf("Local TCP accept error: %s", err)
 					return
 				}
@@ -93,15 +95,13 @@ func (o *Obj) startLocalTCP(mappings []types.TCPMapping) {
 					_ = c.Close()
 					continue
 				}
-				go types.ProxyTCP(o.Core.MTU(), c, r)
+				go types.ProxyTCP(c, r)
 			}
 		}(mapping)
 	}
 }
 
-// //
-
-func (o *Obj) startLocalUDP(mappings []types.UDPMapping, sessionTimeout time.Duration) {
+func (o *Obj) startLocalUDP(ctx context.Context, mappings []types.UDPMapping, sessionTimeout time.Duration) {
 	for _, mapping := range mappings {
 		go func(m types.UDPMapping) {
 			mtu := o.Core.MTU()
@@ -114,13 +114,15 @@ func (o *Obj) startLocalUDP(mappings []types.UDPMapping, sessionTimeout time.Dur
 			o.logger.Infof("Mapping local UDP port %d to Yggdrasil %s", m.Listen.Port, m.Mapped)
 			connections := new(sync.Map)
 
-			// Inactive session cleanup goroutine
-			go o.cleanupUDPSessions(connections, sessionTimeout)
+			go o.cleanupUDPSessions(ctx, connections, sessionTimeout)
 
 			buf := make([]byte, mtu)
 			for {
 				n, remoteAddr, err := udpListenConn.ReadFrom(buf)
 				if err != nil {
+					if ctx.Err() != nil {
+						return
+					}
 					if n == 0 {
 						continue
 					}
@@ -165,9 +167,7 @@ func (o *Obj) startLocalUDP(mappings []types.UDPMapping, sessionTimeout time.Dur
 	}
 }
 
-// //
-
-func (o *Obj) startRemoteTCP(mappings []types.TCPMapping) {
+func (o *Obj) startRemoteTCP(ctx context.Context, mappings []types.TCPMapping) {
 	for _, mapping := range mappings {
 		go func(m types.TCPMapping) {
 			listener, err := o.Netstack.ListenTCP(m.Listen)
@@ -180,6 +180,9 @@ func (o *Obj) startRemoteTCP(mappings []types.TCPMapping) {
 			for {
 				c, err := listener.Accept()
 				if err != nil {
+					if ctx.Err() != nil {
+						return
+					}
 					o.logger.Errorf("Remote TCP accept error: %s", err)
 					return
 				}
@@ -189,15 +192,13 @@ func (o *Obj) startRemoteTCP(mappings []types.TCPMapping) {
 					_ = c.Close()
 					continue
 				}
-				go types.ProxyTCP(o.Core.MTU(), c, r)
+				go types.ProxyTCP(c, r)
 			}
 		}(mapping)
 	}
 }
 
-// //
-
-func (o *Obj) startRemoteUDP(mappings []types.UDPMapping, sessionTimeout time.Duration) {
+func (o *Obj) startRemoteUDP(ctx context.Context, mappings []types.UDPMapping, sessionTimeout time.Duration) {
 	for _, mapping := range mappings {
 		go func(m types.UDPMapping) {
 			mtu := o.Core.MTU()
@@ -210,13 +211,15 @@ func (o *Obj) startRemoteUDP(mappings []types.UDPMapping, sessionTimeout time.Du
 			o.logger.Infof("Mapping Yggdrasil UDP port %d to %s", m.Listen.Port, m.Mapped)
 			connections := new(sync.Map)
 
-			// Inactive session cleanup goroutine
-			go o.cleanupUDPSessions(connections, sessionTimeout)
+			go o.cleanupUDPSessions(ctx, connections, sessionTimeout)
 
 			buf := make([]byte, mtu)
 			for {
 				n, remoteAddr, err := udpListenConn.ReadFrom(buf)
 				if err != nil {
+					if ctx.Err() != nil {
+						return
+					}
 					o.logger.Debugf("udp readFrom error: %v", err)
 				}
 				if n == 0 {
@@ -262,25 +265,28 @@ func (o *Obj) startRemoteUDP(mappings []types.UDPMapping, sessionTimeout time.Du
 	}
 }
 
-// //
-
-func (o *Obj) cleanupUDPSessions(connections *sync.Map, timeout time.Duration) {
+func (o *Obj) cleanupUDPSessions(ctx context.Context, connections *sync.Map, timeout time.Duration) {
 	ticker := time.NewTicker(timeout / 4)
 	defer ticker.Stop()
-	for range ticker.C {
-		now := time.Now().Unix()
-		connections.Range(func(key, value interface{}) bool {
-			session, ok := value.(*udpSessionObj)
-			if !ok {
-				connections.Delete(key)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			now := time.Now().Unix()
+			connections.Range(func(key, value interface{}) bool {
+				session, ok := value.(*udpSessionObj)
+				if !ok {
+					connections.Delete(key)
+					return true
+				}
+				if now-session.lastActivity.Load() > int64(timeout.Seconds()) {
+					o.logger.Debugf("Cleaning up inactive UDP session %s", key)
+					_ = session.conn.Close()
+					connections.Delete(key)
+				}
 				return true
-			}
-			if now-session.lastActivity.Load() > int64(timeout.Seconds()) {
-				o.logger.Debugf("Cleaning up inactive UDP session %s", key)
-				_ = session.conn.Close()
-				connections.Delete(key)
-			}
-			return true
-		})
+			})
+		}
 	}
 }

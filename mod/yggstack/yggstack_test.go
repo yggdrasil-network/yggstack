@@ -1,6 +1,7 @@
 package yggstack
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -170,6 +171,7 @@ func TestCloseIdempotency(t *testing.T) {
 
 	obj := &Obj{
 		Core:    c,
+		ctx:     context.Background(),
 		logger:  noopLoggerObj{},
 		cancel:  func() { cancelCount.Add(1) },
 		closers: []io.Closer{closer1, closer2},
@@ -213,6 +215,8 @@ func TestCloseNilFields(t *testing.T) {
 		Core:      c,
 		Admin:     nil,
 		Multicast: nil,
+		Netstack:  nil,
+		ctx:       context.Background(),
 		logger:    noopLoggerObj{},
 		cancel:    func() {},
 	}
@@ -277,7 +281,10 @@ func TestCleanupUDPSessions(t *testing.T) {
 	sessions.Store("active", active)
 	sessions.Store("invalid", "not a session") // Invalid entry
 
-	go obj.cleanupUDPSessions(&sessions, timeout)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go obj.cleanupUDPSessions(ctx, &sessions, timeout)
 
 	// Wait for at least one cleanup tick (timeout/4 = 25ms) + margin
 	time.Sleep(timeout/2 + 20*time.Millisecond)

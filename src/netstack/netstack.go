@@ -21,6 +21,7 @@ import (
 
 type YggdrasilNetstack struct {
 	stack  *stack.Stack
+	nic    *YggdrasilNIC
 	logger core.Logger
 }
 
@@ -38,10 +39,19 @@ func CreateYggdrasilNetstack(ygg *core.Core, log core.Logger) (*YggdrasilNetstac
 	} else if err := s.stack.SetForwardingDefaultAndAllNICs(ipv6.ProtocolNumber, true); err != nil {
 		return nil, fmt.Errorf("SetForwardingDefaultAndAllNICs: %s", err.String())
 	}
-	if err := s.NewYggdrasilNIC(ygg); err != nil {
-		return nil, fmt.Errorf("s.NewYggdrasilNIC: %s", err.String())
+	nic, tcpErr := s.NewYggdrasilNIC(ygg)
+	if tcpErr != nil {
+		return nil, fmt.Errorf("s.NewYggdrasilNIC: %s", tcpErr.String())
 	}
+	s.nic = nic
 	return s, nil
+}
+
+// Close shuts down NIC and netstack
+func (s *YggdrasilNetstack) Close() {
+	if s.nic != nil {
+		s.nic.Close()
+	}
 }
 
 // //

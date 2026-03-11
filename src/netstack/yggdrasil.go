@@ -27,29 +27,38 @@ type YggdrasilNIC struct {
 	dispatcher stack.NetworkDispatcher
 	readBuf    []byte
 	rstPackets chan *stack.PacketBuffer
+	done       chan struct{}
 	logger     core.Logger
 }
 
-func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) tcpip.Error {
+func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) (*YggdrasilNIC, tcpip.Error) {
 	rwc := ipv6rwc.NewReadWriteCloser(ygg)
 	mtu := rwc.MTU()
 	nic := &YggdrasilNIC{
 		ipv6rwc:    rwc,
 		readBuf:    make([]byte, mtu),
 		rstPackets: make(chan *stack.PacketBuffer, 100),
+		done:       make(chan struct{}),
 		logger:     s.logger,
 	}
 	if err := s.stack.CreateNIC(1, nic); err != nil {
-		return err
+		return nil, err
 	}
+
+	// Read packets from Yggdrasil and deliver to netstack
 	go func() {
 		var rx int
 		var err error
 		for {
 			rx, err = nic.ipv6rwc.Read(nic.readBuf)
 			if err != nil {
-				nic.logger.Println(err)
-				break
+				select {
+				case <-nic.done:
+					// Normal shutdown
+				default:
+					nic.logger.Println(err)
+				}
+				return
 			}
 			pkb := stack.NewPacketBuffer(stack.PacketBufferOptions{
 				Payload: buffer.MakeWithData(nic.readBuf[:rx]),
@@ -57,25 +66,32 @@ func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) tcpip.Error {
 			nic.dispatcher.DeliverNetworkPacket(ipv6.ProtocolNumber, pkb)
 		}
 	}()
+
+	// Deferred RST packet sending
 	go func() {
 		for {
-			pkt := <-nic.rstPackets
-			if pkt == nil {
-				continue
+			select {
+			case <-nic.done:
+				return
+			case pkt := <-nic.rstPackets:
+				if pkt == nil {
+					continue
+				}
+				_ = nic.writePacket(pkt)
 			}
-			_ = nic.writePacket(pkt)
 		}
 	}()
+
 	_, snet, err := net.ParseCIDR("0200::/7")
 	if err != nil {
-		return &tcpip.ErrBadAddress{}
+		return nil, &tcpip.ErrBadAddress{}
 	}
 	subnet, err := tcpip.NewSubnet(
 		tcpip.AddrFromSlice(snet.IP.To16()),
 		tcpip.MaskFrom(string(snet.Mask)),
 	)
 	if err != nil {
-		return &tcpip.ErrBadAddress{}
+		return nil, &tcpip.ErrBadAddress{}
 	}
 	s.stack.AddRoute(tcpip.Route{
 		Destination: subnet,
@@ -91,11 +107,13 @@ func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) tcpip.Error {
 			},
 			stack.AddressProperties{},
 		); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return nic, nil
 }
+
+// //
 
 func (e *YggdrasilNIC) Attach(dispatcher stack.NetworkDispatcher) { e.dispatcher = dispatcher }
 
@@ -115,12 +133,12 @@ func (*YggdrasilNIC) SetLinkAddress(tcpip.LinkAddress) {}
 
 func (*YggdrasilNIC) Wait() {}
 
+// //
+
 func (e *YggdrasilNIC) writePacket(
 	pkt *stack.PacketBuffer,
 ) tcpip.Error {
-	// We need to recover from panic() here because
-	// parser in ToView() gets confused on some packets
-	// without payload and panics
+	// Recover: ToView() panics on packets without payload
 	defer func() {
 		if r := recover(); r != nil {
 			e.logger.Println("writePacket panic:", r)
@@ -163,8 +181,10 @@ func (e *YggdrasilNIC) WritePackets(
 }
 
 func (e *YggdrasilNIC) WriteRawPacket(*stack.PacketBuffer) tcpip.Error {
-	panic("not implemented")
+	return &tcpip.ErrNotSupported{}
 }
+
+// //
 
 func (*YggdrasilNIC) ARPHardwareType() header.ARPHardwareType {
 	return header.ARPHardwareNone
@@ -178,6 +198,7 @@ func (e *YggdrasilNIC) ParseHeader(*stack.PacketBuffer) bool {
 }
 
 func (e *YggdrasilNIC) Close() {
+	close(e.done)
 	e.stack.stack.RemoveNIC(1)
 	e.dispatcher = nil
 }

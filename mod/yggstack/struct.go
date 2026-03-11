@@ -22,6 +22,7 @@ type Obj struct {
 	Multicast *multicast.Multicast
 	Netstack  *netstack.YggdrasilNetstack
 
+	ctx           context.Context
 	socksListener net.Listener
 	socksAddr     string
 	logger        core.Logger
