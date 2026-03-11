@@ -3,10 +3,10 @@ package main
 import (
 	"bufio"
 	"context"
-	"crypto/ed25519"
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -14,10 +14,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	stdlog "log"
-
-	"github.com/gologme/log"
 
 	"github.com/yggdrasil-network/yggdrasil-go/src/address"
 	yggconfig "github.com/yggdrasil-network/yggdrasil-go/src/config"
@@ -53,12 +49,9 @@ func main() {
 	cfg.AdminListen = "none"
 	cfg.Peers = []string{peerURI}
 
-	logger := log.New(io.Discard, "", 0)
-
 	ygg, err := yggstack.New(yggstack.ConfigObj{
 		Ctx:    ctx,
 		Config: cfg,
-		Logger: logger,
 	})
 	if err != nil {
 		fmt.Println("Error: failed to start node:", err)
@@ -66,7 +59,7 @@ func main() {
 	}
 	defer ygg.Close()
 
-	listener, err := ygg.Netstack.ListenTCP(&net.TCPAddr{
+	listener, err := ygg.ListenTCP(&net.TCPAddr{
 		IP:   ygg.Address(),
 		Port: chatPort,
 	})
@@ -81,13 +74,15 @@ func main() {
 
 	srv := &http.Server{
 		Handler:  mux,
-		ErrorLog: stdlog.New(io.Discard, "", 0),
+		ErrorLog: log.New(io.Discard, "", 0),
 	}
 	go srv.Serve(listener)
+	defer srv.Close()
 
 	client := &http.Client{
 		Transport: &http.Transport{
-			DialContext: ygg.Netstack.DialContext,
+			DialContext:       ygg.DialContext,
+			DisableKeepAlives: true,
 		},
 		Timeout: 10 * time.Second,
 	}
@@ -102,14 +97,12 @@ func main() {
 	peerKeyHex := strings.TrimSpace(scanner.Text())
 
 	peerKeyBytes, err := hex.DecodeString(peerKeyHex)
-	if err != nil || len(peerKeyBytes) != ed25519.PublicKeySize {
+	if err != nil || len(peerKeyBytes) != 32 {
 		fmt.Println("Error: invalid public key")
 		return
 	}
 
-	var peerKey [ed25519.PublicKeySize]byte
-	copy(peerKey[:], peerKeyBytes)
-	peerAddr := address.AddrForKey(peerKey[:])
+	peerAddr := address.AddrForKey(peerKeyBytes)
 	peerIP := net.IP(peerAddr[:])
 	peerURL := fmt.Sprintf("http://[%s]:%d", peerIP, chatPort)
 
@@ -147,7 +140,7 @@ func main() {
 	for {
 		select {
 		case <-shutdownCh:
-			return
+			os.Exit(0)
 		case <-ctx.Done():
 			return
 		case line, ok := <-inputCh:
@@ -160,11 +153,9 @@ func main() {
 			if line == "/bye" {
 				sendMessage(client, peerURL, "/bye")
 				fmt.Println("Bye!")
-				return
+				os.Exit(0)
 			}
-			if err := sendMessage(client, peerURL, line); err != nil {
-				fmt.Println("[delivery error]", err)
-			}
+			sendMessage(client, peerURL, line)
 		}
 	}
 }
@@ -172,36 +163,34 @@ func main() {
 // //
 
 func handlePing(w http.ResponseWriter, _ *http.Request) {
-	w.WriteHeader(http.StatusOK)
 	fmt.Fprint(w, "OK-chat")
 }
 
 func handleInput(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 	msg := strings.TrimSpace(string(body))
 	if msg == "" {
-		w.WriteHeader(http.StatusOK)
 		return
 	}
 	if msg == "/bye" {
 		fmt.Println("[peer disconnected]")
-		w.WriteHeader(http.StatusOK)
 		close(shutdownCh)
 		return
 	}
 	fmt.Printf(">> %s\n", msg)
-	w.WriteHeader(http.StatusOK)
 }
 
-func sendMessage(client *http.Client, peerURL string, msg string) error {
-	resp, err := client.Post(peerURL+"/input", "text/plain", strings.NewReader(msg))
-	if err != nil {
-		return err
-	}
-	resp.Body.Close()
-	return nil
+// //
+
+func sendMessage(client *http.Client, peerURL string, msg string) {
+	go func() {
+		resp, err := client.Post(peerURL+"/input", "text/plain", strings.NewReader(msg))
+		if err != nil {
+			return
+		}
+		resp.Body.Close()
+	}()
 }

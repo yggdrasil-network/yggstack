@@ -25,9 +25,11 @@ type YggdrasilNIC struct {
 	stack      *YggdrasilNetstack
 	ipv6rwc    *ipv6rwc.ReadWriteCloser
 	dispatcher stack.NetworkDispatcher
+	dispMu     sync.RWMutex
 	readBuf    []byte
 	rstPackets chan *stack.PacketBuffer
 	done       chan struct{}
+	readDone   chan struct{}
 	closeOnce  sync.Once
 	logger     core.Logger
 }
@@ -41,6 +43,7 @@ func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) (*YggdrasilNIC, tcpi
 		readBuf:    make([]byte, mtu),
 		rstPackets: make(chan *stack.PacketBuffer, 100),
 		done:       make(chan struct{}),
+		readDone:   make(chan struct{}),
 		logger:     s.logger,
 	}
 	if err := s.stack.CreateNIC(1, nic); err != nil {
@@ -49,6 +52,7 @@ func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) (*YggdrasilNIC, tcpi
 
 	// Read packets from Yggdrasil and deliver to netstack
 	go func() {
+		defer close(nic.readDone)
 		var rx int
 		var err error
 		for {
@@ -56,7 +60,6 @@ func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) (*YggdrasilNIC, tcpi
 			if err != nil {
 				select {
 				case <-nic.done:
-					// Normal shutdown
 				default:
 					nic.logger.Println(err)
 				}
@@ -65,7 +68,12 @@ func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) (*YggdrasilNIC, tcpi
 			pkb := stack.NewPacketBuffer(stack.PacketBufferOptions{
 				Payload: buffer.MakeWithData(nic.readBuf[:rx]),
 			})
-			nic.dispatcher.DeliverNetworkPacket(ipv6.ProtocolNumber, pkb)
+			nic.dispMu.RLock()
+			d := nic.dispatcher
+			nic.dispMu.RUnlock()
+			if d != nil {
+				d.DeliverNetworkPacket(ipv6.ProtocolNumber, pkb)
+			}
 			pkb.DecRef()
 		}
 	}()
@@ -119,9 +127,18 @@ func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) (*YggdrasilNIC, tcpi
 
 // //
 
-func (e *YggdrasilNIC) Attach(dispatcher stack.NetworkDispatcher) { e.dispatcher = dispatcher }
+func (e *YggdrasilNIC) Attach(dispatcher stack.NetworkDispatcher) {
+	e.dispMu.Lock()
+	e.dispatcher = dispatcher
+	e.dispMu.Unlock()
+}
 
-func (e *YggdrasilNIC) IsAttached() bool { return e.dispatcher != nil }
+func (e *YggdrasilNIC) IsAttached() bool {
+	e.dispMu.RLock()
+	attached := e.dispatcher != nil
+	e.dispMu.RUnlock()
+	return attached
+}
 
 func (e *YggdrasilNIC) MTU() uint32 { return uint32(e.ipv6rwc.MTU()) }
 
@@ -209,8 +226,9 @@ func (e *YggdrasilNIC) ParseHeader(*stack.PacketBuffer) bool {
 func (e *YggdrasilNIC) Close() {
 	e.closeOnce.Do(func() {
 		close(e.done)
+		_ = e.ipv6rwc.Close()
+		<-e.readDone
 		e.stack.stack.RemoveNIC(1)
-		e.dispatcher = nil
 	})
 }
 

@@ -179,7 +179,10 @@ func New(cfg ConfigObj) (_ *Obj, retErr error) {
 
 // //
 
-// Close gracefully shuts down the node
+// Close gracefully shuts down the node in reverse initialization order:
+// SOCKS5 listener, port forwarding, netstack, multicast, admin socket, core.
+// Safe to call multiple times; only the first call performs cleanup.
+// Always returns nil.
 func (o *Obj) Close() error {
 	o.closeOnce.Do(func() {
 		o.cancel()
@@ -212,39 +215,48 @@ func (o *Obj) Close() error {
 	return nil
 }
 
-// //
-
+// Address returns the node's Yggdrasil IPv6 address (200::/7 range).
 func (o *Obj) Address() net.IP {
 	addr := o.Core.Address()
 	return net.IP(addr[:])
 }
 
+// Subnet returns the node's Yggdrasil /64 routed subnet (300::/7 range).
 func (o *Obj) Subnet() net.IPNet {
 	return o.Core.Subnet()
 }
 
+// PublicKey returns the node's ed25519 public key (32 bytes).
 func (o *Obj) PublicKey() ed25519.PublicKey {
 	return o.Core.PublicKey()
 }
 
-// //
-
+// DialContext opens a connection to a Yggdrasil address.
+// Supported networks: "tcp", "tcp6", "udp", "udp6".
+// Address format: "[ipv6]:port" or "host:port".
+// Compatible with http.Transport.DialContext for use as an HTTP client transport.
 func (o *Obj) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	return o.Netstack.DialContext(ctx, network, address)
 }
 
+// DialTCP opens a TCP connection to the given Yggdrasil address.
 func (o *Obj) DialTCP(addr *net.TCPAddr) (net.Conn, error) {
 	return o.Netstack.DialTCP(addr)
 }
 
+// DialUDP opens a UDP connection to the given Yggdrasil address.
 func (o *Obj) DialUDP(addr *net.UDPAddr) (net.Conn, error) {
 	return o.Netstack.DialUDP(addr)
 }
 
+// ListenTCP listens for incoming TCP connections on the given Yggdrasil address.
+// The addr.IP should be the node's own Yggdrasil IPv6 (from Address()).
 func (o *Obj) ListenTCP(addr *net.TCPAddr) (net.Listener, error) {
 	return o.Netstack.ListenTCP(addr)
 }
 
+// ListenUDP listens for incoming UDP packets on the given Yggdrasil address.
+// The addr.IP should be the node's own Yggdrasil IPv6 (from Address()).
 func (o *Obj) ListenUDP(addr *net.UDPAddr) (net.PacketConn, error) {
 	return o.Netstack.ListenUDP(addr)
 }

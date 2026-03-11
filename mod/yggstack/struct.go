@@ -17,10 +17,25 @@ import (
 // // // // // // // // // //
 
 type Obj struct {
-	Core      *core.Core
-	Admin     *admin.AdminSocket
+	// Core is the underlying Yggdrasil node instance.
+	// Unsafe: calling Core.Stop() directly bypasses Close() cleanup sequence
+	// and will leak netstack, admin socket, and port forwarding resources.
+	// Use Close() for proper shutdown.
+	Core *core.Core
+
+	// Admin is the management API socket. May be nil if AdminListen is set to "none".
+	// Unsafe: calling Admin.Stop() directly bypasses Close() cleanup sequence.
+	Admin *admin.AdminSocket
+
+	// Multicast handles mDNS peer discovery on the local network.
+	// Nil when ConfigObj.MulticastLogger was not provided.
 	Multicast *multicast.Multicast
-	Netstack  *netstack.YggdrasilNetstack
+
+	// Netstack is the gVisor userspace network stack bridging TCP/UDP over Yggdrasil.
+	// Prefer using DialContext, DialTCP, DialUDP, ListenTCP, ListenUDP methods
+	// on Obj/Interface instead of accessing Netstack directly.
+	// Unsafe: calling Netstack.Close() directly bypasses Close() cleanup sequence.
+	Netstack *netstack.YggdrasilNetstack
 
 	ctx           context.Context
 	socksListener net.Listener

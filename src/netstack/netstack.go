@@ -52,6 +52,7 @@ func (s *YggdrasilNetstack) Close() {
 	if s.nic != nil {
 		s.nic.Close()
 	}
+	s.stack.Destroy()
 }
 
 // //
