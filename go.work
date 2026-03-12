@@ -1,0 +1,9 @@
+go 1.25.5
+
+use (
+	.
+	cmd/embedded/mobile
+	cmd/embedded/tiny-chat
+	cmd/embedded/tiny-http
+	cmd/yggstack
+)

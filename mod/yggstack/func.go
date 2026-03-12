@@ -81,14 +81,9 @@ func (o *Obj) stopComponents() {
 
 	o.componentsWg.Wait()
 
-	// Peer monitor depends on Core, stop it before Core.Stop()
 	if o.peerMonitor != nil {
 		o.peerMonitor.Cancel()
 		o.peerMonitor = nil
-	}
-	// Atomically swap out the netstack — stops new Dial/Listen calls from using it.
-	if ns := o.netstackPtr.Swap(nil); ns != nil {
-		ns.Close()
 	}
 	if o.Multicast != nil {
 		_ = o.Multicast.Stop()
@@ -98,7 +93,15 @@ func (o *Obj) stopComponents() {
 		_ = o.Admin.Stop()
 		o.Admin = nil
 	}
+	// Core must stop before ns.Close(): nic.Close() waits for ipv6rwc.Read() to return,
+	// which only unblocks after core.Stop() closes the underlying session.
 	o.stopCoreWithTimeout()
+	// Atomically swap out the netstack — stops new Dial/Listen calls from using it.
+	// ns.Close() calls ipv6rwc.Close() which calls core.Stop() again internally;
+	// apply the same timeout so a hung Phony actor cannot block shutdown.
+	if ns := o.netstackPtr.Swap(nil); ns != nil {
+		o.closeWithTimeout("ns.Close()", ns.Close)
+	}
 	o.componentsCancel = nil
 	o.componentsCtx = nil
 }
@@ -127,6 +130,25 @@ func (o *Obj) stopCoreWithTimeout() {
 	o.Core = nil
 }
 
+// closeWithTimeout runs fn in a goroutine and waits up to coreStopTimeout.
+// When timeout == 0 — waits indefinitely.
+func (o *Obj) closeWithTimeout(name string, fn func()) {
+	if o.coreStopTimeout == 0 {
+		fn()
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		fn()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(o.coreStopTimeout):
+		o.logger.Warnf("%s timed out after %s, forcing shutdown", name, o.coreStopTimeout)
+	}
+}
+
 // rollbackComponents stops partially initialized subsystems.
 func (o *Obj) rollbackComponents() {
 	if o.peerMonitor != nil {
@@ -137,9 +159,6 @@ func (o *Obj) rollbackComponents() {
 		_ = o.socksListener.Close()
 		o.socksListener = nil
 	}
-	if ns := o.netstackPtr.Swap(nil); ns != nil {
-		ns.Close()
-	}
 	if o.Multicast != nil {
 		_ = o.Multicast.Stop()
 		o.Multicast = nil
@@ -149,6 +168,9 @@ func (o *Obj) rollbackComponents() {
 		o.Admin = nil
 	}
 	o.stopCoreWithTimeout()
+	if ns := o.netstackPtr.Swap(nil); ns != nil {
+		o.closeWithTimeout("ns.Close()", ns.Close)
+	}
 }
 
 // //

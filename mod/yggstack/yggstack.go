@@ -186,20 +186,32 @@ func (o *Obj) DialUDP(addr *net.UDPAddr) (net.Conn, error) {
 
 // ListenTCP listens for incoming TCP connections on the given Yggdrasil address.
 // The addr.IP should be the node's own Yggdrasil IPv6 (from Address()).
+// The returned listener is automatically closed on node shutdown.
 func (o *Obj) ListenTCP(addr *net.TCPAddr) (net.Listener, error) {
 	ns := o.netstackPtr.Load()
 	if ns == nil {
 		return nil, fmt.Errorf("netstack is not available")
 	}
-	return ns.ListenTCP(addr)
+	l, err := ns.ListenTCP(addr)
+	if err != nil {
+		return nil, err
+	}
+	o.addCloser(l)
+	return l, nil
 }
 
 // ListenUDP listens for incoming UDP packets on the given Yggdrasil address.
 // The addr.IP should be the node's own Yggdrasil IPv6 (from Address()).
+// The returned conn is automatically closed on node shutdown.
 func (o *Obj) ListenUDP(addr *net.UDPAddr) (net.PacketConn, error) {
 	ns := o.netstackPtr.Load()
 	if ns == nil {
 		return nil, fmt.Errorf("netstack is not available")
 	}
-	return ns.ListenUDP(addr)
+	c, err := ns.ListenUDP(addr)
+	if err != nil {
+		return nil, err
+	}
+	o.addCloser(c)
+	return c, nil
 }
