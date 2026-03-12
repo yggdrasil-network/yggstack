@@ -36,11 +36,11 @@ import (
 )
 
 type node struct {
-	core           *core.Core
-	multicast      *multicast.Multicast
-	admin          *admin.AdminSocket
-	socks5Tcp      net.Listener
-	socks5Unix     net.Listener
+	core       *core.Core
+	multicast  *multicast.Multicast
+	admin      *admin.AdminSocket
+	socks5Tcp  net.Listener
+	socks5Unix net.Listener
 }
 
 type UDPSession struct {
@@ -293,14 +293,15 @@ func main() {
 			socksOptions := []socks5.Option{
 				socks5.WithDial(s.DialContext),
 			}
-			if nameserver != nil {
-				if *nameserver == "" {
-					logger.Infof("DNS nameserver is not set!")
-					logger.Infof("SOCKS server will not be able to resolve hostnames other than .pk.ygg !")
-				}
-				resolver := types.NewNameResolver(s, *nameserver)
-				socksOptions = append(socksOptions, socks5.WithResolver(resolver))
+			var resolver *types.NameResolver = nil
+			if nameserver != nil && *nameserver != "" {
+				resolver = types.NewNameResolver(s, *nameserver)
+			} else {
+				logger.Infof("DNS nameserver is not set!")
+				logger.Infof("SOCKS server will not be able to resolve hostnames other than .pk.ygg !")
+				resolver = types.NewNameResolver(s, "")
 			}
+			socksOptions = append(socksOptions, socks5.WithResolver(resolver))
 			if logger.GetLevel("debug") {
 				socksOptions = append(socksOptions, socks5.WithLogger(logger))
 			}

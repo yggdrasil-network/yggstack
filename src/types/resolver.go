@@ -25,17 +25,14 @@ func NewNameResolver(stack *netstack.YggdrasilNetstack, nameserver string) *Name
 		},
 	}
 	if nameserver != "" {
-		res.resolver.Dial = func(ctx context.Context, network, address string) (net.Conn, error) { // nolint:staticcheck
-			if nameserver == "" {
-				return nil, fmt.Errorf("no nameserver configured")
-			}
-			host, port, err := net.SplitHostPort(nameserver)
-			if err != nil {
-				// default to dns service when no port given.
-				port = "dns"
-				host = nameserver
-			}
-			address = net.JoinHostPort(host, port)
+		host, port, err := net.SplitHostPort(nameserver)
+		if err != nil {
+			// default to dns service when no port given.
+			port = "dns"
+			host = nameserver
+		}
+		address := net.JoinHostPort(host, port)
+		res.resolver.Dial = func(ctx context.Context, network, _ string) (net.Conn, error) { // nolint:staticcheck
 			return stack.DialContext(ctx, network, address)
 		}
 	}
