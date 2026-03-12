@@ -37,14 +37,6 @@ type Obj struct {
 	// Nil when ConfigObj.MulticastLogger was not provided.
 	Multicast *multicast.Multicast
 
-	// Netstack -- userspace gVisor TCP/UDP stack over Yggdrasil.
-	// WARNING: when LowPower != nil this field becomes nil during node sleep.
-	// Direct access (obj.Netstack.DialContext) will cause nil dereference.
-	// Use Obj methods: DialContext, DialTCP, DialUDP, ListenTCP, ListenUDP --
-	// they handle LPM correctly via netstackPtr atomic load.
-	// Unsafe: calling Netstack.Close() directly bypasses Close() cleanup sequence.
-	Netstack *netstack.YggdrasilNetstack
-
 	ctx              context.Context
 	netstackPtr      atomic.Pointer[netstack.YggdrasilNetstack]
 	socksListener    net.Listener
@@ -69,6 +61,8 @@ type Obj struct {
 	componentsCancel context.CancelFunc
 	componentsWg     sync.WaitGroup
 }
+
+// //
 
 func (o *Obj) addCloser(c io.Closer) {
 	o.closersMu.Lock()

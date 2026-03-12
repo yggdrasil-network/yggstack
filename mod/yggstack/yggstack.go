@@ -6,19 +6,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
-	"os"
-	"regexp"
 	"time"
 
-	"github.com/yggdrasil-network/yggdrasil-go/src/admin"
 	"github.com/yggdrasil-network/yggdrasil-go/src/config"
-	"github.com/yggdrasil-network/yggdrasil-go/src/core"
-	"github.com/yggdrasil-network/yggdrasil-go/src/multicast"
-
 	"github.com/yggdrasil-network/yggstack/mod/lowpower"
-	"github.com/yggdrasil-network/yggstack/mod/mapping"
-	"github.com/yggdrasil-network/yggstack/mod/peers"
-	"github.com/yggdrasil-network/yggstack/src/netstack"
 	"github.com/yggdrasil-network/yggstack/src/types"
 )
 
@@ -147,276 +138,6 @@ func (o *Obj) Close() error {
 	return nil
 }
 
-// stopComponents shuts down subsystems without finalizing Obj.
-// Called from Close() and from LPM when entering sleep.
-func (o *Obj) stopComponents() {
-	o.componentsMu.Lock()
-	defer o.componentsMu.Unlock()
-
-	// Clear atomic pointer before closing netstack
-	o.netstackPtr.Store(nil)
-
-	// Signal all component goroutines to stop
-	if o.componentsCancel != nil {
-		o.componentsCancel()
-	}
-
-	if o.socksListener != nil {
-		_ = o.socksListener.Close()
-		if o.socksIsUnix {
-			_ = os.RemoveAll(o.socksAddr)
-			o.logger.Infof("Stopped SOCKS5 UNIX socket listener")
-		} else {
-			o.logger.Infof("Stopped SOCKS5 TCP listener")
-		}
-		o.socksListener = nil
-	}
-	// Port forwarding listeners
-	o.closersMu.Lock()
-	for _, c := range o.closers {
-		_ = c.Close()
-	}
-	o.closers = nil
-	o.closersMu.Unlock()
-
-	// Wait for all component goroutines to finish
-	o.componentsWg.Wait()
-
-	// Peer monitor depends on Core, stop it before Core.Stop()
-	if o.peerMonitor != nil {
-		o.peerMonitor.Cancel()
-		o.peerMonitor = nil
-	}
-	if o.Netstack != nil {
-		o.Netstack.Close()
-		o.Netstack = nil
-	}
-	if o.Multicast != nil {
-		_ = o.Multicast.Stop()
-		o.Multicast = nil
-	}
-	if o.Admin != nil {
-		_ = o.Admin.Stop()
-		o.Admin = nil
-	}
-	o.stopCoreWithTimeout()
-	o.componentsCancel = nil
-	o.componentsCtx = nil
-}
-
-// startComponents recreates all subsystems using the stored nodeConfig.
-// Called from LPM when waking up.
-func (o *Obj) startComponents(cfg ConfigObj) (retErr error) {
-	o.componentsMu.Lock()
-	defer o.componentsMu.Unlock()
-
-	// New generation context for component goroutines
-	o.componentsCtx, o.componentsCancel = context.WithCancel(o.ctx)
-
-	// Channel to signal SOCKS readiness on wake
-	if cfg.SocksAddr != "" {
-		o.socksReadyCh = make(chan struct{})
-	}
-
-	nodeCfg := o.nodeConfig
-	log := o.logger
-
-	defer func() {
-		if retErr != nil {
-			o.netstackPtr.Store(nil)
-			o.rollbackComponents()
-			o.componentsCancel()
-			o.componentsWg.Wait()
-			o.componentsCancel = nil
-			o.componentsCtx = nil
-		}
-	}()
-
-	if err := o.initCore(nodeCfg, log); err != nil {
-		return err
-	}
-	if err := o.initAdmin(nodeCfg, log); err != nil {
-		return err
-	}
-	if err := o.initMulticast(cfg, nodeCfg); err != nil {
-		return err
-	}
-	if err := o.initNetworking(cfg, log); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// //
-
-// stopCoreWithTimeout stops Core with a time limit.
-// When timeout == 0 — waits indefinitely (backward-compatible).
-func (o *Obj) stopCoreWithTimeout() {
-	if o.Core == nil {
-		return
-	}
-	if o.coreStopTimeout == 0 {
-		o.Core.Stop()
-		o.Core = nil
-		return
-	}
-	done := make(chan struct{})
-	go func() {
-		o.Core.Stop()
-		close(done)
-	}()
-	select {
-	case <-done:
-		// Graceful shutdown completed
-	case <-time.After(o.coreStopTimeout):
-		o.logger.Warnf("core.Stop() timed out after %s, forcing shutdown", o.coreStopTimeout)
-	}
-	o.Core = nil
-}
-
-// rollbackComponents stops partially initialized subsystems.
-func (o *Obj) rollbackComponents() {
-	if o.peerMonitor != nil {
-		o.peerMonitor.Cancel()
-		o.peerMonitor = nil
-	}
-	if o.socksListener != nil {
-		_ = o.socksListener.Close()
-		o.socksListener = nil
-	}
-	if o.Netstack != nil {
-		o.Netstack.Close()
-		o.Netstack = nil
-	}
-	if o.Multicast != nil {
-		_ = o.Multicast.Stop()
-		o.Multicast = nil
-	}
-	if o.Admin != nil {
-		_ = o.Admin.Stop()
-		o.Admin = nil
-	}
-	o.stopCoreWithTimeout()
-}
-
-func (o *Obj) initCore(nodeCfg *config.NodeConfig, log core.Logger) error {
-	options := []core.SetupOption{
-		core.NodeInfo(nodeCfg.NodeInfo),
-		core.NodeInfoPrivacy(nodeCfg.NodeInfoPrivacy),
-	}
-	for _, addr := range nodeCfg.Listen {
-		options = append(options, core.ListenAddress(addr))
-	}
-	for _, peer := range nodeCfg.Peers {
-		options = append(options, core.Peer{URI: peer})
-	}
-	for intf, peers := range nodeCfg.InterfacePeers {
-		for _, peer := range peers {
-			options = append(options, core.Peer{URI: peer, SourceInterface: intf})
-		}
-	}
-	for _, allowed := range nodeCfg.AllowedPublicKeys {
-		k, err := hex.DecodeString(allowed)
-		if err != nil {
-			return fmt.Errorf("hex.DecodeString AllowedPublicKeys: %w", err)
-		}
-		options = append(options, core.AllowedPublicKey(k[:]))
-	}
-	var err error
-	if o.Core, err = core.New(nodeCfg.Certificate, log, options...); err != nil {
-		return fmt.Errorf("core.New: %w", err)
-	}
-	return nil
-}
-
-func (o *Obj) initAdmin(nodeCfg *config.NodeConfig, log core.Logger) error {
-	options := []admin.SetupOption{
-		admin.ListenAddress(nodeCfg.AdminListen),
-	}
-	if nodeCfg.LogLookups {
-		options = append(options, admin.LogLookups{})
-	}
-	var err error
-	if o.Admin, err = admin.New(o.Core, log, options...); err != nil {
-		return fmt.Errorf("admin.New: %w", err)
-	}
-	if o.Admin != nil {
-		o.Admin.SetupAdminHandlers()
-	}
-	return nil
-}
-
-func (o *Obj) initMulticast(cfg ConfigObj, nodeCfg *config.NodeConfig) error {
-	if cfg.MulticastLogger == nil {
-		return nil
-	}
-	var options []multicast.SetupOption
-	for _, intf := range nodeCfg.MulticastInterfaces {
-		options = append(options, multicast.MulticastInterface{
-			Regex:    regexp.MustCompile(intf.Regex),
-			Beacon:   intf.Beacon,
-			Listen:   intf.Listen,
-			Port:     intf.Port,
-			Priority: uint8(intf.Priority),
-			Password: intf.Password,
-		})
-	}
-	var err error
-	if o.Multicast, err = multicast.New(o.Core, cfg.MulticastLogger, options...); err != nil {
-		return fmt.Errorf("multicast.New: %w", err)
-	}
-	if o.Admin != nil && o.Multicast != nil {
-		o.Multicast.SetupAdminHandlers(o.Admin)
-	}
-	return nil
-}
-
-func (o *Obj) initNetworking(cfg ConfigObj, log core.Logger) error {
-	// Peer monitor
-	if cfg.PeerChangeCallback != nil {
-		pCtx, pCancel := context.WithCancel(o.componentsCtx)
-		o.peerMonitor = peers.NewMonitor(o.Core, cfg.PeerChangeCallback, &o.connCounter, pCtx, pCancel)
-		o.componentsWg.Add(1)
-		go func() {
-			defer o.componentsWg.Done()
-			o.peerMonitor.Run()
-		}()
-	}
-
-	// Netstack
-	var err error
-	if o.Netstack, err = netstack.CreateYggdrasilNetstack(o.Core, log); err != nil {
-		return fmt.Errorf("netstack.CreateYggdrasilNetstack: %w", err)
-	}
-	o.netstackPtr.Store(o.Netstack)
-
-	// SOCKS5
-	if cfg.SocksAddr != "" {
-		result, err := mapping.StartSocks(o.nodeMapping, mapping.SocksConfigObj{
-			Addr:       cfg.SocksAddr,
-			Nameserver: cfg.Nameserver,
-			Verbose:    cfg.SocksVerbose,
-		}, o.socksReadyCh)
-		if err != nil {
-			return fmt.Errorf("SOCKS5: %w", err)
-		}
-		o.socksListener = result.Listener
-		o.socksIsUnix = result.IsUnix
-		o.socksAddr = cfg.SocksAddr
-	}
-
-	// Port forwarding
-	mapping.StartLocalTCP(o.nodeMapping, cfg.Mapping.LocalTCP)
-	mapping.StartLocalUDP(o.nodeMapping, cfg.Mapping.LocalUDP, cfg.UDPSessionTimeout)
-	mapping.StartRemoteTCP(o.nodeMapping, cfg.Mapping.RemoteTCP)
-	mapping.StartRemoteUDP(o.nodeMapping, cfg.Mapping.RemoteUDP, cfg.UDPSessionTimeout)
-
-	return nil
-}
-
-// //
-
 // Address returns the node's Yggdrasil IPv6 address (200::/7 range).
 func (o *Obj) Address() net.IP {
 	addr := o.Core.Address()
@@ -438,62 +159,47 @@ func (o *Obj) PublicKey() ed25519.PublicKey {
 // Address format: "[ipv6]:port" or "host:port".
 // Compatible with http.Transport.DialContext for use as an HTTP client transport.
 func (o *Obj) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	if o.lowPower != nil {
-		ns := o.netstackPtr.Load()
-		if ns == nil {
-			return nil, fmt.Errorf("node is in low power mode")
-		}
-		return ns.DialContext(ctx, network, address)
+	ns := o.netstackPtr.Load()
+	if ns == nil {
+		return nil, fmt.Errorf("netstack is not available")
 	}
-	return o.Netstack.DialContext(ctx, network, address)
+	return ns.DialContext(ctx, network, address)
 }
 
 // DialTCP opens a TCP connection to the given Yggdrasil address.
 func (o *Obj) DialTCP(addr *net.TCPAddr) (net.Conn, error) {
-	if o.lowPower != nil {
-		ns := o.netstackPtr.Load()
-		if ns == nil {
-			return nil, fmt.Errorf("node is in low power mode")
-		}
-		return ns.DialTCP(addr)
+	ns := o.netstackPtr.Load()
+	if ns == nil {
+		return nil, fmt.Errorf("netstack is not available")
 	}
-	return o.Netstack.DialTCP(addr)
+	return ns.DialTCP(addr)
 }
 
 // DialUDP opens a UDP connection to the given Yggdrasil address.
 func (o *Obj) DialUDP(addr *net.UDPAddr) (net.Conn, error) {
-	if o.lowPower != nil {
-		ns := o.netstackPtr.Load()
-		if ns == nil {
-			return nil, fmt.Errorf("node is in low power mode")
-		}
-		return ns.DialUDP(addr)
+	ns := o.netstackPtr.Load()
+	if ns == nil {
+		return nil, fmt.Errorf("netstack is not available")
 	}
-	return o.Netstack.DialUDP(addr)
+	return ns.DialUDP(addr)
 }
 
 // ListenTCP listens for incoming TCP connections on the given Yggdrasil address.
 // The addr.IP should be the node's own Yggdrasil IPv6 (from Address()).
 func (o *Obj) ListenTCP(addr *net.TCPAddr) (net.Listener, error) {
-	if o.lowPower != nil {
-		ns := o.netstackPtr.Load()
-		if ns == nil {
-			return nil, fmt.Errorf("node is in low power mode")
-		}
-		return ns.ListenTCP(addr)
+	ns := o.netstackPtr.Load()
+	if ns == nil {
+		return nil, fmt.Errorf("netstack is not available")
 	}
-	return o.Netstack.ListenTCP(addr)
+	return ns.ListenTCP(addr)
 }
 
 // ListenUDP listens for incoming UDP packets on the given Yggdrasil address.
 // The addr.IP should be the node's own Yggdrasil IPv6 (from Address()).
 func (o *Obj) ListenUDP(addr *net.UDPAddr) (net.PacketConn, error) {
-	if o.lowPower != nil {
-		ns := o.netstackPtr.Load()
-		if ns == nil {
-			return nil, fmt.Errorf("node is in low power mode")
-		}
-		return ns.ListenUDP(addr)
+	ns := o.netstackPtr.Load()
+	if ns == nil {
+		return nil, fmt.Errorf("netstack is not available")
 	}
-	return o.Netstack.ListenUDP(addr)
+	return ns.ListenUDP(addr)
 }

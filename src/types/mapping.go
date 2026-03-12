@@ -155,8 +155,8 @@ func parseMappingString(value string) (first_address string, first_port int, sec
 		}
 	}
 
-	if first_port == 0 || second_port == 0 {
-		return "", 0, "", 0, fmt.Errorf("Ports must not be zero")
+	if first_port < 1 || first_port > 65535 || second_port < 1 || second_port > 65535 {
+		return "", 0, "", 0, fmt.Errorf("ports must be in range 1-65535")
 	}
 
 	return first_address, first_port, second_address, second_port, nil
@@ -170,8 +170,14 @@ func buildMapping(value string, isLocal bool) (listenIP net.IP, listenPort int, 
 	}
 
 	if isLocal {
-		if !strings.Contains(secondAddr, ":") {
-			return nil, 0, nil, 0, fmt.Errorf("Yggdrasil listening address can be only IPv6")
+		// Local mappings must have an explicit Yggdrasil destination.
+		// Reject empty, IPv4, and IPv4-mapped-IPv6 addresses.
+		if secondAddr == "" {
+			return nil, 0, nil, 0, fmt.Errorf("local mapping requires a Yggdrasil IPv6 destination address")
+		}
+		ip := net.ParseIP(secondAddr)
+		if ip == nil || ip.To4() != nil {
+			return nil, 0, nil, 0, fmt.Errorf("Yggdrasil mapped address must be a valid IPv6 address, got %q", secondAddr)
 		}
 	} else {
 		if firstAddr != "" {

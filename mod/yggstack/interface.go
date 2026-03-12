@@ -10,7 +10,6 @@ import (
 
 // // // // // // // // // //
 
-// Public contract for a Yggdrasil node
 type Interface interface {
 	DialContext(ctx context.Context, network, address string) (net.Conn, error)
 	DialTCP(addr *net.TCPAddr) (net.Conn, error)

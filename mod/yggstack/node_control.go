@@ -9,7 +9,6 @@ import (
 // // // // // // // // // //
 
 // NodeControlObj is the default lowpower.NodeControlInterface adapter.
-// Delegates to *Obj methods.
 type NodeControlObj struct {
 	node *Obj
 }

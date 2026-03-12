@@ -2,6 +2,7 @@ package lowpower
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -11,14 +12,20 @@ import (
 // // // // // // // // // //
 
 // ManagerObj manages automatic sleep/wake transitions of the node.
+// All state transitions are driven by Run() — the single owning goroutine.
+// External callers request wake via TransitionToFullPower which sends to wakeCh.
 type ManagerObj struct {
-	node    NodeControlInterface
-	cfg     ConfigObj
-	origCfg interface{} // opaque config passed back to StartComponents on wake
-	state   atomic.Int32
-	ctx     context.Context
-	cancel  context.CancelFunc
-	logger  core.Logger
+	node   NodeControlInterface
+	cfg    ConfigObj
+	state  atomic.Int32
+	ctx    context.Context
+	cancel context.CancelFunc
+	logger core.Logger
+
+	wakeCh chan struct{} // buffered(1): request wake from any goroutine without blocking
+
+	origCfgMu sync.RWMutex
+	origCfg   interface{} // opaque config passed back to StartComponents on wake
 
 	wakeTrigger      wakeTriggerObj
 	socksWaitTimeout time.Duration // SOCKS readiness timeout on wake (default 10s)
@@ -35,6 +42,7 @@ func NewManager(node NodeControlInterface, cfg ConfigObj, ctx context.Context, c
 		ctx:              ctx,
 		cancel:           cancel,
 		logger:           logger,
+		wakeCh:           make(chan struct{}, 1),
 		socksWaitTimeout: wakeSOCKSWaitTimeout,
 	}
 	m.state.Store(StateFullPower)
@@ -52,6 +60,8 @@ func (m *ManagerObj) idleSeconds() int64 {
 
 // //
 
+// Run is the sole owner of state transitions.
+// Must be run in a dedicated goroutine.
 func (m *ManagerObj) Run() {
 	ticker := time.NewTicker(idleCheckInterval)
 	defer ticker.Stop()
@@ -60,17 +70,30 @@ func (m *ManagerObj) Run() {
 		select {
 		case <-m.ctx.Done():
 			return
+
+		case <-m.wakeCh:
+			// Wake request from TransitionToFullPower — process regardless of current state.
+			if m.state.Load() != StateFullPower {
+				m.doTransitionToFullPower()
+			}
+
 		case <-ticker.C:
 			if m.state.Load() != StateFullPower {
 				continue
 			}
-			// Refresh lastActivity while there are active connections
+			// Refresh lastActivity while there are active connections.
 			if m.node.ConnCounter().Count() > 0 {
 				m.touchActivity()
 				continue
 			}
 			if time.Duration(m.idleSeconds())*time.Second >= m.cfg.IdleTimeout {
 				m.transitionToLowPower()
+				// Process any wake signal that arrived while we were stopping.
+				select {
+				case <-m.wakeCh:
+					m.doTransitionToFullPower()
+				default:
+				}
 			}
 		}
 	}
@@ -78,17 +101,20 @@ func (m *ManagerObj) Run() {
 
 // //
 
+// transitionToLowPower stops components and enters sleep.
+// Must be called only from Run(). No-op if not in StateFullPower.
 func (m *ManagerObj) transitionToLowPower() {
-	if !m.state.CompareAndSwap(StateFullPower, StateStopping) {
+	if m.state.Load() != StateFullPower {
 		return
 	}
+	m.state.Store(StateStopping)
 	m.logger.Infof("Low power mode: entering sleep after %s idle", m.cfg.IdleTimeout)
 
 	socksAddr := m.node.SocksAddr()
 
 	m.node.StopComponents()
 
-	// Wake trigger on SOCKS port: wake the node when a client connects
+	// Wake trigger on SOCKS port: wake the node when a client connects.
 	if socksAddr != "" {
 		m.startWakeTrigger(socksAddr)
 	}
@@ -97,17 +123,17 @@ func (m *ManagerObj) transitionToLowPower() {
 	m.logger.Infof("Low power mode: sleeping")
 }
 
-func (m *ManagerObj) TransitionToFullPower() {
-	if !m.state.CompareAndSwap(StateLowPower, StateStarting) {
-		return
-	}
+// doTransitionToFullPower wakes the node.
+// Must be called only from Run().
+func (m *ManagerObj) doTransitionToFullPower() {
+	m.state.Store(StateStarting)
 	m.logger.Infof("Low power mode: waking up")
 
 	// Close listener — no new connections accepted,
-	// but in-flight handleWakeConnection goroutines continue and wait for SOCKS
+	// but in-flight handleWakeConnection goroutines continue and wait for SOCKS.
 	m.closeWakeListener()
 
-	if err := m.node.StartComponents(m.origCfg); err != nil {
+	if err := m.node.StartComponents(m.getOrigCfg()); err != nil {
 		m.logger.Errorf("Low power mode: failed to restart components: %s", err)
 		m.state.Store(StateLowPower)
 		return
@@ -120,19 +146,40 @@ func (m *ManagerObj) TransitionToFullPower() {
 
 // //
 
-// IsLowPower returns true if the node is in sleep or stopping state.
+// TransitionToFullPower signals Run() to wake the node.
+// Non-blocking: if a wake is already queued, the call is a no-op.
+// Safe to call from any goroutine.
+func (m *ManagerObj) TransitionToFullPower() {
+	select {
+	case m.wakeCh <- struct{}{}:
+	default:
+	}
+}
+
+// //
+
+// IsLowPower returns true if the node is sleeping or entering sleep.
 func (m *ManagerObj) IsLowPower() bool {
 	s := m.state.Load()
 	return s == StateLowPower || s == StateStopping
 }
 
 // SetOrigConfig stores the configuration for restart on wake.
+// Safe to call from any goroutine.
 func (m *ManagerObj) SetOrigConfig(cfg interface{}) {
+	m.origCfgMu.Lock()
 	m.origCfg = cfg
+	m.origCfgMu.Unlock()
 }
 
 // OrigConfig returns the stored restart configuration.
 func (m *ManagerObj) OrigConfig() interface{} {
+	return m.getOrigCfg()
+}
+
+func (m *ManagerObj) getOrigCfg() interface{} {
+	m.origCfgMu.RLock()
+	defer m.origCfgMu.RUnlock()
 	return m.origCfg
 }
 

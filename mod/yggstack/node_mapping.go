@@ -14,14 +14,13 @@ import (
 // // // // // // // // // //
 
 // NodeMappingObj is the default mapping.NodeInterface adapter.
-// Delegates to *Obj fields.
 type NodeMappingObj struct {
 	node *Obj
 }
 
 // //
 
-func (a *NodeMappingObj) GetNetstack() *netstack.YggdrasilNetstack { return a.node.Netstack }
+func (a *NodeMappingObj) GetNetstack() *netstack.YggdrasilNetstack { return a.node.netstackPtr.Load() }
 func (a *NodeMappingObj) GetCoreMTU() uint64                       { return a.node.Core.MTU() }
 func (a *NodeMappingObj) GetLogger() core.Logger                   { return a.node.logger }
 func (a *NodeMappingObj) GetActivityCallback() activity.CallbackInterface {

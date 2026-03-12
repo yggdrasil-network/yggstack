@@ -33,7 +33,7 @@ func (m *ManagerObj) startWakeTrigger(addr string) {
 	if m.node.SocksIsUnix() {
 		network = "unix"
 		// Remove stale socket left over from SOCKS
-		_ = os.RemoveAll(addr)
+		_ = os.Remove(addr)
 	}
 	listener, err := net.Listen(network, addr)
 	if err != nil {
@@ -105,7 +105,7 @@ func (m *ManagerObj) closeWakeListener() {
 	if m.wakeTrigger.listener != nil {
 		_ = m.wakeTrigger.listener.Close()
 		if m.node.SocksIsUnix() {
-			_ = os.RemoveAll(m.node.SocksAddr())
+			_ = os.Remove(m.node.SocksAddr())
 		}
 		m.wakeTrigger.listener = nil
 	}

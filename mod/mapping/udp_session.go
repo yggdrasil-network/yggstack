@@ -1,6 +1,7 @@
 package mapping
 
 import (
+	"context"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -19,6 +20,7 @@ type UDPSessionObj struct {
 	Callback     activity.CallbackInterface // nil when tracking is disabled
 	Counter      *activity.CounterObj       // nil when tracking is disabled
 	CloseOnce    sync.Once
+	cancel       context.CancelFunc // cancels session context, stops ReverseProxyUDP
 }
 
 // UDPSessionMapObj is a typed concurrent map of UDP sessions.

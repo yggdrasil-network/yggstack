@@ -21,8 +21,9 @@ type TrackedConnObj struct {
 func (t *TrackedConnObj) Close() error {
 	var innerErr error
 	t.closed.Do(func() {
+		// Decrement is deferred so it runs even if OnConnectionClosed panics.
+		defer t.Counter.Decrement()
 		t.Callback.OnConnectionClosed(t.ConnId)
-		t.Counter.Decrement()
 		innerErr = t.Conn.Close()
 	})
 	return innerErr

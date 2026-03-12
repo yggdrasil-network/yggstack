@@ -9,7 +9,6 @@ import (
 // // // // // // // // // //
 
 // CoreInterface abstracts the Yggdrasil core methods used by the peers package.
-// *core.Core satisfies this implicitly.
 type CoreInterface interface {
 	GetPeers() []core.PeerInfo
 	AddPeer(u *url.URL, sintf string) error

@@ -1,10 +1,6 @@
 package yggstack
 
-import (
-	"fmt"
-
-	"github.com/yggdrasil-network/yggstack/mod/lowpower"
-)
+import "fmt"
 
 // // // // // // // // // //
 
@@ -26,7 +22,7 @@ func (o *Obj) WakeLowPower() error {
 	if o.lowPower == nil {
 		return fmt.Errorf("low power mode is not enabled")
 	}
-	if o.lowPower.GetState() == lowpower.StateLowPower {
+	if o.lowPower.IsLowPower() {
 		o.lowPower.TransitionToFullPower()
 	}
 	return nil

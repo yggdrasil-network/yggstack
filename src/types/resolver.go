@@ -12,6 +12,8 @@ import (
 	"github.com/yggdrasil-network/yggstack/src/netstack"
 )
 
+// // // // // // // // // //
+
 const NameMappingSuffix = ".pk.ygg"
 
 type NameResolver struct {
@@ -25,16 +27,13 @@ func NewNameResolver(stack *netstack.YggdrasilNetstack, nameserver string) *Name
 		},
 	}
 	if nameserver != "" {
+		ns := nameserver
 		res.resolver.Dial = func(ctx context.Context, network, address string) (net.Conn, error) { // nolint:staticcheck
-			// NOTE: Dead check — nameserver is already verified non-empty by the outer if (line 27)
-			if nameserver == "" {
-				return nil, fmt.Errorf("no nameserver configured")
-			}
-			host, port, err := net.SplitHostPort(nameserver)
+			host, port, err := net.SplitHostPort(ns)
 			if err != nil {
-				// default to dns service when no port given.
+				// Default to dns service when no port given.
 				port = "dns"
-				host = nameserver
+				host = ns
 			}
 			address = net.JoinHostPort(host, port)
 			return stack.DialContext(ctx, network, address)
@@ -43,19 +42,27 @@ func NewNameResolver(stack *netstack.YggdrasilNetstack, nameserver string) *Name
 	return res
 }
 
+// //
+
 func (r *NameResolver) Resolve(ctx context.Context, name string) (context.Context, net.IP, error) {
 	if strings.HasSuffix(name, NameMappingSuffix) {
 		name = strings.TrimSuffix(name, NameMappingSuffix)
-		// Check if remaining string contains a dot and
-		// assume publickey is a rightmost token
-		name = name[strings.LastIndex(name, ".")+1:]
-		var pk [ed25519.PublicKeySize]byte
-		if b, err := hex.DecodeString(name); err != nil {
-			return nil, nil, fmt.Errorf("hex.DecodeString: %w", err)
-		} else {
-			copy(pk[:], b)
-			return ctx, net.IP(address.AddrForKey(pk[:])[:]), nil
+		// If the remaining part contains dots, take only the rightmost label
+		// as the public key (e.g. "subdomain.<pubkey>.pk.ygg").
+		if idx := strings.LastIndex(name, "."); idx >= 0 {
+			name = name[idx+1:]
 		}
+		b, err := hex.DecodeString(name)
+		if err != nil {
+			return nil, nil, fmt.Errorf("hex.DecodeString: %w", err)
+		}
+		// Reject keys with wrong length — copy() would silently zero-pad, producing an invalid address.
+		if len(b) != ed25519.PublicKeySize {
+			return nil, nil, fmt.Errorf("public key must be %d bytes, got %d", ed25519.PublicKeySize, len(b))
+		}
+		var pk [ed25519.PublicKeySize]byte
+		copy(pk[:], b)
+		return ctx, net.IP(address.AddrForKey(pk[:])[:]), nil
 	}
 	ip := net.ParseIP(name)
 	if ip == nil {

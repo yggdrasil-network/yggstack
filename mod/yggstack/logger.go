@@ -2,10 +2,7 @@ package yggstack
 
 // // // // // // // // // //
 
-// Noop stub for core.Logger — discards all output
 type noopLoggerObj struct{}
-
-//
 
 func (noopLoggerObj) Printf(string, ...interface{}) {}
 func (noopLoggerObj) Println(...interface{})        {}

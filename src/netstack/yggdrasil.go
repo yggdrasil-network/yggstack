@@ -30,6 +30,7 @@ type YggdrasilNIC struct {
 	rstPackets chan *stack.PacketBuffer
 	done       chan struct{}
 	readDone   chan struct{}
+	rstDone    chan struct{}
 	closeOnce  sync.Once
 	logger     core.Logger
 }
@@ -44,6 +45,7 @@ func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) (*YggdrasilNIC, tcpi
 		rstPackets: make(chan *stack.PacketBuffer, 100),
 		done:       make(chan struct{}),
 		readDone:   make(chan struct{}),
+		rstDone:    make(chan struct{}),
 		logger:     s.logger,
 	}
 	if err := s.stack.CreateNIC(1, nic); err != nil {
@@ -80,10 +82,19 @@ func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) (*YggdrasilNIC, tcpi
 
 	// Deferred RST packet sending
 	go func() {
+		defer close(nic.rstDone)
 		for {
 			select {
 			case <-nic.done:
-				return
+				// Drain queued packets to release their references.
+				for {
+					select {
+					case pkt := <-nic.rstPackets:
+						pkt.DecRef()
+					default:
+						return
+					}
+				}
 			case pkt := <-nic.rstPackets:
 				if pkt == nil {
 					continue
@@ -228,6 +239,7 @@ func (e *YggdrasilNIC) Close() {
 		close(e.done)
 		_ = e.ipv6rwc.Close()
 		<-e.readDone
+		<-e.rstDone
 		e.stack.stack.RemoveNIC(1)
 	})
 }

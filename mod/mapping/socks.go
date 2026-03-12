@@ -15,6 +15,25 @@ import (
 
 // // // // // // // // // //
 
+// removeUnixSocket removes a Unix socket file.
+// Returns an error if the path is a symlink — refuse to follow it to prevent
+// a local attacker from redirecting the removal to an arbitrary filesystem path.
+func removeUnixSocket(path string) error {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("os.Lstat %s: %w", path, err)
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing to remove %s: is a symlink", path)
+	}
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("os.Remove %s: %w", path, err)
+	}
+	return nil
+}
+
+// //
+
 // SocksConfigObj holds SOCKS5 server parameters.
 type SocksConfigObj struct {
 	Addr       string
@@ -73,7 +92,6 @@ func StartSocks(node NodeInterface, cfg SocksConfigObj, readyCh chan struct{}) (
 	result := &SocksResultObj{}
 
 	if strings.Contains(cfg.Addr, ":") {
-		result.IsUnix = false
 		log.Infof("Starting SOCKS server on %s", cfg.Addr)
 		var err error
 		result.Listener, err = net.Listen("tcp", cfg.Addr)
@@ -89,8 +107,8 @@ func StartSocks(node NodeInterface, cfg SocksConfigObj, readyCh chan struct{}) (
 			if isErrorAddressAlreadyInUse(err) {
 				_, dialErr := net.Dial("unix", cfg.Addr)
 				if dialErr != nil {
-					if rmErr := os.RemoveAll(cfg.Addr); rmErr != nil {
-						return nil, fmt.Errorf("os.RemoveAll %s: %w", cfg.Addr, rmErr)
+					if rmErr := removeUnixSocket(cfg.Addr); rmErr != nil {
+						return nil, rmErr
 					}
 					result.Listener, err = net.Listen("unix", cfg.Addr)
 					if err != nil {

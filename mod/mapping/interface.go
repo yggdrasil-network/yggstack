@@ -13,7 +13,6 @@ import (
 
 // // // // // // // // // //
 
-// NodeInterface defines node dependencies required by mapping functions.
 type NodeInterface interface {
 	GetNetstack() *netstack.YggdrasilNetstack
 	GetCoreMTU() uint64

@@ -143,7 +143,6 @@ func TestCloseNilFields(t *testing.T) {
 		Core:      c,
 		Admin:     nil,
 		Multicast: nil,
-		Netstack:  nil,
 		ctx:       context.Background(),
 		logger:    noopLoggerObj{},
 		cancel:    func() {},
