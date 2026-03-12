@@ -1,0 +1,23 @@
+# Yggdrasil private key — hex-encoded Ed25519 private key (64 bytes = 128 hex chars).
+# Leave empty to auto-generate a new key on each startup (address will change every restart).
+private_key: ""
+
+# Hostname shown in /yggdrasil-server.json.
+# Use "localhost" to expose all HTTP port combinations, or a domain name for a single entry.
+hostname: localhost
+
+# Outbound Yggdrasil peers.
+peers:
+  - ws://yggdrasil.sunsung.fun:4440
+  - quic://yggdrasil.sunsung.fun:4441
+  - tcp://yggdrasil.sunsung.fun:4442
+  - tls://yggdrasil.sunsung.fun:4443
+
+# Ports for the regular HTTP server (plain TCP).
+http_ports:
+  - 8080
+
+# Ports for the Yggdrasil HTTP server.
+ygg_ports:
+  - 80
+  - 443

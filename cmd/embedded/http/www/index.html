@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yggdrasil HTTP Server</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>Yggdrasil HTTP Server</h1>
+        <span id="connection-badge" class="badge loading">Loading…</span>
+    </header>
+
+    <div id="status-unavailable" class="card error hidden">
+        Server is currently unavailable. Retrying…
+    </div>
+
+    <div id="main-content" class="hidden">
+        <div class="grid-2">
+            <div class="card">
+                <h2>Node</h2>
+                <div class="info-row">
+                    <span class="label">Yggdrasil address</span>
+                    <span id="ygg-addr" class="mono"></span>
+                </div>
+                <div class="info-row">
+                    <span class="label">Public key</span>
+                    <span id="pub-key" class="mono truncate" title=""></span>
+                </div>
+                <div class="info-row">
+                    <span class="label">Uptime</span>
+                    <span id="uptime"></span>
+                </div>
+                <div class="info-row">
+                    <span class="label">Sessions</span>
+                    <span id="sessions"></span>
+                </div>
+            </div>
+            <div class="card qr-card">
+                <h2>Share via Yggdrasil</h2>
+                <img id="qr-img" src="/ygg-qr.png" alt="Yggdrasil QR code">
+                <p class="qr-hint">Scan to open in an Yggdrasil-connected browser</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Bandwidth <span id="updated-at" class="updated-at"></span></h2>
+            <div class="bw-stats">
+                <div class="stat-box">
+                    <div class="label">↓ RX rate</div>
+                    <div id="rx-rate" class="rate rx"></div>
+                </div>
+                <div class="stat-box">
+                    <div class="label">↑ TX rate</div>
+                    <div id="tx-rate" class="rate tx"></div>
+                </div>
+                <div class="stat-box">
+                    <div class="label">Total received</div>
+                    <div id="rx-total"></div>
+                </div>
+                <div class="stat-box">
+                    <div class="label">Total sent</div>
+                    <div id="tx-total"></div>
+                </div>
+            </div>
+            <canvas id="bw-chart" height="80"></canvas>
+        </div>
+
+        <div class="card">
+            <h2>Peers</h2>
+            <div id="peers-list"></div>
+        </div>
+    </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

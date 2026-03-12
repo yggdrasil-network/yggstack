@@ -21,6 +21,13 @@ Yggstack fills the gap by providing SOCKS5 proxy server and TCP port forwarder
 functionality similar to TOR router. It also can serve as a standalone network node
 to connect network segments.
 
+## Embedding
+
+Yggstack can be embedded directly into any Go application as a library module —
+no TUN adapter, root access, or separate daemon required. The node runs entirely
+in userspace. See **[EMBEDDING.md](EMBEDDING.md)** for the full API reference,
+configuration options, usage patterns, and annotated examples.
+
 ## Supported Platforms
 
 Yggdrasil works on a number of platforms, including Linux, macOS, Ubiquiti
