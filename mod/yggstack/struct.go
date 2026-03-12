@@ -6,8 +6,10 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/yggdrasil-network/yggdrasil-go/src/admin"
+	"github.com/yggdrasil-network/yggdrasil-go/src/config"
 	"github.com/yggdrasil-network/yggdrasil-go/src/core"
 	"github.com/yggdrasil-network/yggdrasil-go/src/multicast"
 
@@ -31,32 +33,39 @@ type Obj struct {
 	// Nil when ConfigObj.MulticastLogger was not provided.
 	Multicast *multicast.Multicast
 
-	// Netstack is the gVisor userspace network stack bridging TCP/UDP over Yggdrasil.
-	// Prefer using DialContext, DialTCP, DialUDP, ListenTCP, ListenUDP methods
-	// on Obj/Interface instead of accessing Netstack directly.
+	// Netstack -- userspace gVisor TCP/UDP stack over Yggdrasil.
+	// WARNING: when LowPower != nil this field becomes nil during node sleep.
+	// Direct access (obj.Netstack.DialContext) will cause nil dereference.
+	// Use Obj methods: DialContext, DialTCP, DialUDP, ListenTCP, ListenUDP --
+	// they handle LPM correctly via netstackPtr atomic load.
 	// Unsafe: calling Netstack.Close() directly bypasses Close() cleanup sequence.
 	Netstack *netstack.YggdrasilNetstack
 
-	ctx           context.Context
-	socksListener net.Listener
-	socksAddr     string
-	logger        core.Logger
-	cancel        context.CancelFunc
-	closeOnce     sync.Once
-	closers       []io.Closer
-	closersMu     sync.Mutex
+	ctx              context.Context
+	netstackPtr  atomic.Pointer[netstack.YggdrasilNetstack]
+	socksListener    net.Listener
+	socksReadyCh chan struct{} // closed when SOCKS listener is ready after wake
+	socksAddr        string
+	socksIsUnix      bool
+	coreStopTimeout  time.Duration
+	logger           core.Logger
+	cancel           context.CancelFunc
+	closeOnce        sync.Once
+	closers          []io.Closer
+	closersMu        sync.Mutex
+	activityCallback ActivityCallbackInterface
+	connCounter      connectionCounterObj
+	peerMonitor      *peerMonitorObj
+	nodeConfig       *config.NodeConfig
+	lowPower         *lowPowerManagerObj
+	componentsMu     sync.RWMutex
+	componentsCtx    context.Context
+	componentsCancel context.CancelFunc
+	componentsWg     sync.WaitGroup
 }
 
 func (o *Obj) addCloser(c io.Closer) {
 	o.closersMu.Lock()
 	o.closers = append(o.closers, c)
 	o.closersMu.Unlock()
-}
-
-// //
-
-type udpSessionObj struct {
-	conn         net.Conn
-	remoteAddr   net.Addr
-	lastActivity atomic.Int64
 }

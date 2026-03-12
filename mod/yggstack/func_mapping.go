@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/things-go/go-socks5"
@@ -17,8 +16,25 @@ import (
 // // // // // // // // // //
 
 func (o *Obj) startSocks(cfg ConfigObj) error {
+	dialFn := o.Netstack.DialContext
+	if o.activityCallback != nil {
+		originalDial := dialFn
+		dialFn = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			conn, err := originalDial(ctx, network, addr)
+			if err != nil {
+				return nil, err
+			}
+			connId := generateConnId("socks", addr)
+			o.activityCallback.OnConnectionCreated(connId, "socks")
+			o.connCounter.increment()
+			return &trackedConnObj{
+				Conn: conn, connId: connId,
+				callback: o.activityCallback, counter: &o.connCounter,
+			}, nil
+		}
+	}
 	socksOptions := []socks5.Option{
-		socks5.WithDial(o.Netstack.DialContext),
+		socks5.WithDial(dialFn),
 	}
 	if cfg.Nameserver == "" {
 		o.logger.Infof("DNS nameserver is not set!")
@@ -32,6 +48,7 @@ func (o *Obj) startSocks(cfg ConfigObj) error {
 	server := socks5.NewServer(socksOptions...)
 
 	if strings.Contains(cfg.SocksAddr, ":") {
+		o.socksIsUnix = false
 		o.logger.Infof("Starting SOCKS server on %s", cfg.SocksAddr)
 		var err error
 		o.socksListener, err = net.Listen("tcp", cfg.SocksAddr)
@@ -39,6 +56,7 @@ func (o *Obj) startSocks(cfg ConfigObj) error {
 			return fmt.Errorf("net.Listen tcp %s: %w", cfg.SocksAddr, err)
 		}
 	} else {
+		o.socksIsUnix = true
 		o.logger.Infof("Starting SOCKS server with socket file %s", cfg.SocksAddr)
 		var err error
 		o.socksListener, err = net.Listen("unix", cfg.SocksAddr)
@@ -63,18 +81,29 @@ func (o *Obj) startSocks(cfg ConfigObj) error {
 		}
 	}
 
+	// Signal handleWakeConnection: SOCKS is ready
+	if o.socksReadyCh != nil {
+		close(o.socksReadyCh)
+	}
+
+	o.componentsWg.Add(1)
 	go func() {
+		defer o.componentsWg.Done()
 		if err := server.Serve(o.socksListener); err != nil {
-			o.logger.Errorf("SOCKS5 server error: %s", err)
+			if o.componentsCtx.Err() == nil {
+				o.logger.Errorf("SOCKS5 server error: %s", err)
+			}
 		}
 	}()
 
 	return nil
 }
 
-func (o *Obj) startLocalTCP(ctx context.Context, mappings []types.TCPMapping) {
+func (o *Obj) startLocalTCP(mappings []types.TCPMapping) {
 	for _, mapping := range mappings {
+		o.componentsWg.Add(1)
 		go func(m types.TCPMapping) {
+			defer o.componentsWg.Done()
 			listener, err := net.ListenTCP("tcp", m.Listen)
 			if err != nil {
 				o.logger.Errorf("Failed to listen on local TCP %s: %s", m.Listen, err)
@@ -85,7 +114,7 @@ func (o *Obj) startLocalTCP(ctx context.Context, mappings []types.TCPMapping) {
 			for {
 				c, err := listener.Accept()
 				if err != nil {
-					if ctx.Err() != nil {
+					if o.componentsCtx.Err() != nil {
 						return
 					}
 					o.logger.Errorf("Local TCP accept error: %s", err)
@@ -97,15 +126,27 @@ func (o *Obj) startLocalTCP(ctx context.Context, mappings []types.TCPMapping) {
 					_ = c.Close()
 					continue
 				}
-				go types.ProxyTCP(c, r)
+				var remote net.Conn = r
+				if o.activityCallback != nil {
+					connId := generateConnId("tcp", m.Mapped.String())
+					o.activityCallback.OnConnectionCreated(connId, "tcp")
+					o.connCounter.increment()
+					remote = &trackedConnObj{
+						Conn: r, connId: connId,
+						callback: o.activityCallback, counter: &o.connCounter,
+					}
+				}
+				go types.ProxyTCP(c, remote)
 			}
 		}(mapping)
 	}
 }
 
-func (o *Obj) startLocalUDP(ctx context.Context, mappings []types.UDPMapping, sessionTimeout time.Duration) {
+func (o *Obj) startLocalUDP(mappings []types.UDPMapping, sessionTimeout time.Duration) {
 	for _, mapping := range mappings {
+		o.componentsWg.Add(1)
 		go func(m types.UDPMapping) {
+			defer o.componentsWg.Done()
 			mtu := o.Core.MTU()
 			udpListenConn, err := net.ListenUDP("udp", m.Listen)
 			if err != nil {
@@ -114,15 +155,19 @@ func (o *Obj) startLocalUDP(ctx context.Context, mappings []types.UDPMapping, se
 			}
 			o.addCloser(udpListenConn)
 			o.logger.Infof("Mapping local UDP port %d to Yggdrasil %s", m.Listen.Port, m.Mapped)
-			connections := new(sync.Map)
+			connections := &udpSessionMapObj{data: make(map[string]*udpSessionObj)}
 
-			go o.cleanupUDPSessions(ctx, connections, sessionTimeout)
+			o.componentsWg.Add(1)
+			go func() {
+				defer o.componentsWg.Done()
+				o.cleanupUDPSessions(o.componentsCtx, connections, sessionTimeout)
+			}()
 
 			buf := make([]byte, mtu)
 			for {
 				n, remoteAddr, err := udpListenConn.ReadFrom(buf)
 				if err != nil {
-					if ctx.Err() != nil {
+					if o.componentsCtx.Err() != nil {
 						return
 					}
 					if n == 0 {
@@ -131,9 +176,8 @@ func (o *Obj) startLocalUDP(ctx context.Context, mappings []types.UDPMapping, se
 				}
 
 				key := remoteAddr.String()
-				var session *udpSessionObj
 
-				connVal, ok := connections.Load(key)
+				session, ok := connections.Load(key)
 
 				if !ok {
 					o.logger.Debugf("Creating new session for %s", key)
@@ -146,21 +190,23 @@ func (o *Obj) startLocalUDP(ctx context.Context, mappings []types.UDPMapping, se
 						conn:       fwdConn,
 						remoteAddr: remoteAddr,
 					}
+					if o.activityCallback != nil {
+						session.connId = generateConnId("udp", key)
+						session.callback = o.activityCallback
+						session.counter = &o.connCounter
+						o.activityCallback.OnConnectionCreated(session.connId, "udp")
+						o.connCounter.increment()
+					}
 					session.lastActivity.Store(time.Now().Unix())
 					connections.Store(key, session)
 					go types.ReverseProxyUDP(mtu, udpListenConn, remoteAddr, fwdConn)
-				} else {
-					session, ok = connVal.(*udpSessionObj)
-					if !ok {
-						continue
-					}
 				}
 
 				session.lastActivity.Store(time.Now().Unix())
 				_, err = session.conn.Write(buf[:n])
 				if err != nil {
 					o.logger.Debugf("Cannot write from yggdrasil to udp listener: %q", err)
-					_ = session.conn.Close()
+					o.closeUDPSession(session)
 					connections.Delete(key)
 					continue
 				}
@@ -169,9 +215,11 @@ func (o *Obj) startLocalUDP(ctx context.Context, mappings []types.UDPMapping, se
 	}
 }
 
-func (o *Obj) startRemoteTCP(ctx context.Context, mappings []types.TCPMapping) {
+func (o *Obj) startRemoteTCP(mappings []types.TCPMapping) {
 	for _, mapping := range mappings {
+		o.componentsWg.Add(1)
 		go func(m types.TCPMapping) {
+			defer o.componentsWg.Done()
 			listener, err := o.Netstack.ListenTCP(m.Listen)
 			if err != nil {
 				o.logger.Errorf("Failed to listen on Yggdrasil TCP %s: %s", m.Listen, err)
@@ -182,7 +230,7 @@ func (o *Obj) startRemoteTCP(ctx context.Context, mappings []types.TCPMapping) {
 			for {
 				c, err := listener.Accept()
 				if err != nil {
-					if ctx.Err() != nil {
+					if o.componentsCtx.Err() != nil {
 						return
 					}
 					o.logger.Errorf("Remote TCP accept error: %s", err)
@@ -194,15 +242,27 @@ func (o *Obj) startRemoteTCP(ctx context.Context, mappings []types.TCPMapping) {
 					_ = c.Close()
 					continue
 				}
-				go types.ProxyTCP(c, r)
+				var incoming net.Conn = c
+				if o.activityCallback != nil {
+					connId := generateConnId("tcp-remote", c.RemoteAddr().String())
+					o.activityCallback.OnConnectionCreated(connId, "tcp")
+					o.connCounter.increment()
+					incoming = &trackedConnObj{
+						Conn: c, connId: connId,
+						callback: o.activityCallback, counter: &o.connCounter,
+					}
+				}
+				go types.ProxyTCP(incoming, r)
 			}
 		}(mapping)
 	}
 }
 
-func (o *Obj) startRemoteUDP(ctx context.Context, mappings []types.UDPMapping, sessionTimeout time.Duration) {
+func (o *Obj) startRemoteUDP(mappings []types.UDPMapping, sessionTimeout time.Duration) {
 	for _, mapping := range mappings {
+		o.componentsWg.Add(1)
 		go func(m types.UDPMapping) {
+			defer o.componentsWg.Done()
 			mtu := o.Core.MTU()
 			udpListenConn, err := o.Netstack.ListenUDP(m.Listen)
 			if err != nil {
@@ -211,15 +271,19 @@ func (o *Obj) startRemoteUDP(ctx context.Context, mappings []types.UDPMapping, s
 			}
 			o.addCloser(udpListenConn)
 			o.logger.Infof("Mapping Yggdrasil UDP port %d to %s", m.Listen.Port, m.Mapped)
-			connections := new(sync.Map)
+			connections := &udpSessionMapObj{data: make(map[string]*udpSessionObj)}
 
-			go o.cleanupUDPSessions(ctx, connections, sessionTimeout)
+			o.componentsWg.Add(1)
+			go func() {
+				defer o.componentsWg.Done()
+				o.cleanupUDPSessions(o.componentsCtx, connections, sessionTimeout)
+			}()
 
 			buf := make([]byte, mtu)
 			for {
 				n, remoteAddr, err := udpListenConn.ReadFrom(buf)
 				if err != nil {
-					if ctx.Err() != nil {
+					if o.componentsCtx.Err() != nil {
 						return
 					}
 					o.logger.Debugf("udp readFrom error: %v", err)
@@ -229,9 +293,8 @@ func (o *Obj) startRemoteUDP(ctx context.Context, mappings []types.UDPMapping, s
 				}
 
 				key := remoteAddr.String()
-				var session *udpSessionObj
 
-				connVal, ok := connections.Load(key)
+				session, ok := connections.Load(key)
 
 				if !ok {
 					o.logger.Debugf("Creating new session for %s", key)
@@ -244,21 +307,23 @@ func (o *Obj) startRemoteUDP(ctx context.Context, mappings []types.UDPMapping, s
 						conn:       fwdConn,
 						remoteAddr: remoteAddr,
 					}
+					if o.activityCallback != nil {
+						session.connId = generateConnId("udp-remote", key)
+						session.callback = o.activityCallback
+						session.counter = &o.connCounter
+						o.activityCallback.OnConnectionCreated(session.connId, "udp")
+						o.connCounter.increment()
+					}
 					session.lastActivity.Store(time.Now().Unix())
 					connections.Store(key, session)
 					go types.ReverseProxyUDP(mtu, udpListenConn, remoteAddr, fwdConn)
-				} else {
-					session, ok = connVal.(*udpSessionObj)
-					if !ok {
-						continue
-					}
 				}
 
 				session.lastActivity.Store(time.Now().Unix())
 				_, err = session.conn.Write(buf[:n])
 				if err != nil {
 					o.logger.Debugf("Cannot write from yggdrasil to udp listener: %q", err)
-					_ = session.conn.Close()
+					o.closeUDPSession(session)
 					connections.Delete(key)
 					continue
 				}
@@ -267,7 +332,19 @@ func (o *Obj) startRemoteUDP(ctx context.Context, mappings []types.UDPMapping, s
 	}
 }
 
-func (o *Obj) cleanupUDPSessions(ctx context.Context, connections *sync.Map, timeout time.Duration) {
+// //
+
+func (o *Obj) closeUDPSession(session *udpSessionObj) {
+	session.closeOnce.Do(func() {
+		_ = session.conn.Close()
+		if session.callback != nil && session.connId != "" {
+			session.callback.OnConnectionClosed(session.connId)
+			session.counter.decrement()
+		}
+	})
+}
+
+func (o *Obj) cleanupUDPSessions(ctx context.Context, connections *udpSessionMapObj, timeout time.Duration) {
 	ticker := time.NewTicker(timeout / 4)
 	defer ticker.Stop()
 	for {
@@ -276,15 +353,10 @@ func (o *Obj) cleanupUDPSessions(ctx context.Context, connections *sync.Map, tim
 			return
 		case <-ticker.C:
 			now := time.Now().Unix()
-			connections.Range(func(key, value interface{}) bool {
-				session, ok := value.(*udpSessionObj)
-				if !ok {
-					connections.Delete(key)
-					return true
-				}
+			connections.Range(func(key string, session *udpSessionObj) bool {
 				if now-session.lastActivity.Load() > int64(timeout.Seconds()) {
 					o.logger.Debugf("Cleaning up inactive UDP session %s", key)
-					_ = session.conn.Close()
+					o.closeUDPSession(session)
 					connections.Delete(key)
 				}
 				return true

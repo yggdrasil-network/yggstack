@@ -261,6 +261,134 @@ func TestUDPSessionLastActivity(t *testing.T) {
 	wg.Wait()
 }
 
+func TestStopCoreWithTimeout_ZeroMeansNoTimeout(t *testing.T) {
+	cfg := config.GenerateConfig()
+	c, err := core.New(cfg.Certificate, noopLoggerObj{})
+	if err != nil {
+		t.Fatalf("core.New: %v", err)
+	}
+
+	obj := &Obj{
+		Core:            c,
+		coreStopTimeout: 0, // infinite wait
+		logger:          noopLoggerObj{},
+	}
+
+	obj.stopCoreWithTimeout()
+	if obj.Core != nil {
+		t.Fatal("Core must be nil after stopCoreWithTimeout()")
+	}
+}
+
+func TestStopCoreWithTimeout_WithTimeout(t *testing.T) {
+	cfg := config.GenerateConfig()
+	c, err := core.New(cfg.Certificate, noopLoggerObj{})
+	if err != nil {
+		t.Fatalf("core.New: %v", err)
+	}
+
+	obj := &Obj{
+		Core:            c,
+		coreStopTimeout: 5 * time.Second, // timeout won't fire — Core stops fast
+		logger:          noopLoggerObj{},
+	}
+
+	start := time.Now()
+	obj.stopCoreWithTimeout()
+	elapsed := time.Since(start)
+
+	if obj.Core != nil {
+		t.Fatal("Core must be nil after stopCoreWithTimeout()")
+	}
+	if elapsed >= 5*time.Second {
+		t.Fatalf("expected fast stop, got %s", elapsed)
+	}
+}
+
+func TestStopCoreWithTimeout_NilCore(t *testing.T) {
+	obj := &Obj{
+		Core:            nil,
+		coreStopTimeout: 1 * time.Second,
+		logger:          noopLoggerObj{},
+	}
+
+	// Must not panic
+	obj.stopCoreWithTimeout()
+	if obj.Core != nil {
+		t.Fatal("Core must remain nil")
+	}
+}
+
+func TestComponentsCtx_CancelStopsGoroutines(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	componentsCtx, componentsCancel := context.WithCancel(ctx)
+
+	obj := &Obj{
+		ctx:              ctx,
+		cancel:           cancel,
+		componentsCtx:    componentsCtx,
+		componentsCancel: componentsCancel,
+		logger:           noopLoggerObj{},
+	}
+
+	// Start a goroutine bound to componentsCtx
+	done := make(chan struct{})
+	obj.componentsWg.Add(1)
+	go func() {
+		defer obj.componentsWg.Done()
+		<-obj.componentsCtx.Done()
+		close(done)
+	}()
+
+	// Cancelling componentsCtx stops the goroutine
+	componentsCancel()
+	obj.componentsWg.Wait()
+
+	select {
+	case <-done:
+		// ok
+	case <-time.After(2 * time.Second):
+		t.Fatal("goroutine should have stopped after componentsCancel()")
+	}
+}
+
+func TestComponentsCtx_NewGeneration(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	firstCtx, firstCancel := context.WithCancel(ctx)
+	obj := &Obj{
+		ctx:              ctx,
+		cancel:           cancel,
+		componentsCtx:    firstCtx,
+		componentsCancel: firstCancel,
+		logger:           noopLoggerObj{},
+	}
+
+	// First cancellation
+	firstCancel()
+	if obj.componentsCtx.Err() == nil {
+		t.Fatal("first componentsCtx should be cancelled")
+	}
+
+	// New generation
+	obj.componentsCtx, obj.componentsCancel = context.WithCancel(ctx)
+	if obj.componentsCtx.Err() != nil {
+		t.Fatal("new componentsCtx should not be cancelled")
+	}
+
+	// Parent context is not affected
+	if ctx.Err() != nil {
+		t.Fatal("parent ctx should not be cancelled")
+	}
+
+	obj.componentsCancel()
+}
+
+// //
+
 func TestCleanupUDPSessions(t *testing.T) {
 	obj := &Obj{logger: noopLoggerObj{}}
 
@@ -276,15 +404,14 @@ func TestCleanupUDPSessions(t *testing.T) {
 	active := &udpSessionObj{conn: activeConn}
 	active.lastActivity.Store(now + 60) // Far in the future
 
-	var sessions sync.Map
+	sessions := &udpSessionMapObj{data: make(map[string]*udpSessionObj)}
 	sessions.Store("expired", expired)
 	sessions.Store("active", active)
-	sessions.Store("invalid", "not a session") // Invalid entry
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go obj.cleanupUDPSessions(ctx, &sessions, timeout)
+	go obj.cleanupUDPSessions(ctx, sessions, timeout)
 
 	// Wait for at least one cleanup tick (timeout/4 = 25ms) + margin
 	time.Sleep(timeout/2 + 20*time.Millisecond)
@@ -303,10 +430,5 @@ func TestCleanupUDPSessions(t *testing.T) {
 	}
 	if activeConn.closed.Load() != 0 {
 		t.Error("active session conn was unexpectedly closed")
-	}
-
-	// Invalid entry must be removed
-	if _, ok := sessions.Load("invalid"); ok {
-		t.Error("invalid entry was not cleaned up")
 	}
 }

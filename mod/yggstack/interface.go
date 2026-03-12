@@ -18,6 +18,11 @@ type Interface interface {
 	Address() net.IP
 	Subnet() net.IPNet
 	PublicKey() ed25519.PublicKey
+	GetPeers() []PeerInfoObj
+	GetPeersJSON() ([]byte, error)
+	AddPeer(uri string) error
+	RemovePeer(uri string) error
+	RetryPeersNow()
 	Close() error
 }
 

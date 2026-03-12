@@ -87,4 +87,32 @@ type ConfigObj struct {
 	// After this duration without traffic, the session is closed and resources are freed.
 	// Default: 120s.
 	UDPSessionTimeout time.Duration
+
+	// ActivityCallback receives notifications on connection lifecycle (create/transfer/close).
+	// When nil, connections are not wrapped — zero overhead.
+	ActivityCallback ActivityCallbackInterface
+
+	// PeerChangeCallback receives notifications when the number of connected peers changes.
+	// Uses adaptive polling: 500ms with active connections, 5s when idle.
+	// When nil, peer monitoring is disabled.
+	PeerChangeCallback PeerChangeCallbackInterface
+
+	// CoreStopTimeout limits the time spent waiting for core.Stop() to complete.
+	// When the timeout is exceeded, shutdown continues without waiting.
+	// Relevant when switching networks (WiFi → LTE), where peer closure can hang indefinitely.
+	// If 0 — waits forever (default, backward-compatible behavior).
+	CoreStopTimeout time.Duration
+
+	// LowPower enables power saving: when no active connections exist for longer than
+	// IdleTimeout, the node stops. On incoming connection — restarts automatically.
+	// nil = disabled. Requires ActivityCallback != nil.
+	LowPower *LowPowerConfigObj
+}
+
+// //
+
+// LowPowerConfigObj holds low power mode parameters.
+type LowPowerConfigObj struct {
+	// IdleTimeout is the idle duration before entering sleep. Default: 60s.
+	IdleTimeout time.Duration
 }

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -25,7 +26,10 @@ import (
 
 const chatPort = 9998
 
-var shutdownCh = make(chan struct{})
+var (
+	shutdownCh   = make(chan struct{})
+	shutdownOnce sync.Once
+)
 
 // //
 
@@ -177,7 +181,7 @@ func handleInput(w http.ResponseWriter, r *http.Request) {
 	}
 	if msg == "/bye" {
 		fmt.Println("[peer disconnected]")
-		close(shutdownCh)
+		shutdownOnce.Do(func() { close(shutdownCh) })
 		return
 	}
 	fmt.Printf(">> %s\n", msg)
