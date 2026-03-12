@@ -1,4 +1,4 @@
-package yggstack
+package mapping
 
 import (
 	"errors"

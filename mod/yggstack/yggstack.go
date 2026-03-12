@@ -15,6 +15,9 @@ import (
 	"github.com/yggdrasil-network/yggdrasil-go/src/core"
 	"github.com/yggdrasil-network/yggdrasil-go/src/multicast"
 
+	"github.com/yggdrasil-network/yggstack/mod/lowpower"
+	"github.com/yggdrasil-network/yggstack/mod/mapping"
+	"github.com/yggdrasil-network/yggstack/mod/peers"
 	"github.com/yggdrasil-network/yggstack/src/netstack"
 	"github.com/yggdrasil-network/yggstack/src/types"
 )
@@ -42,6 +45,11 @@ func New(cfg ConfigObj) (_ *Obj, retErr error) {
 		cfg.UDPSessionTimeout = 120 * time.Second
 	}
 
+	// Validate: LowPower requires ActivityCallback for idle detection
+	if cfg.LowPower != nil && cfg.ActivityCallback == nil {
+		log.Warnf("LowPower is enabled but ActivityCallback is nil — idle detection will not work correctly")
+	}
+
 	componentsCtx, componentsCancel := context.WithCancel(ctx)
 
 	obj := &Obj{
@@ -54,6 +62,18 @@ func New(cfg ConfigObj) (_ *Obj, retErr error) {
 		logger:           log,
 		activityCallback: cfg.ActivityCallback,
 		nodeConfig:       nodeCfg,
+	}
+
+	// Resolve interface adapters: use injected or built-in defaults
+	if cfg.NodeMapping != nil {
+		obj.nodeMapping = cfg.NodeMapping
+	} else {
+		obj.nodeMapping = &NodeMappingObj{node: obj}
+	}
+	if cfg.NodeControl != nil {
+		obj.nodeControl = cfg.NodeControl
+	} else {
+		obj.nodeControl = &NodeControlObj{node: obj}
 	}
 
 	defer func() {
@@ -94,9 +114,11 @@ func New(cfg ConfigObj) (_ *Obj, retErr error) {
 			lpmCfg.IdleTimeout = 60 * time.Second
 		}
 		lpmCtx, lpmCancel := context.WithCancel(ctx)
-		obj.lowPower = newLowPowerManager(obj, lpmCfg, lpmCtx, lpmCancel, log)
-		obj.lowPower.setOrigConfig(cfg)
-		go obj.lowPower.run()
+		obj.lowPower = lowpower.NewManager(obj.nodeControl, lpmCfg, lpmCtx, lpmCancel, log)
+		cfgCopy := cfg
+		cfgCopy.Ctx = nil
+		obj.lowPower.SetOrigConfig(cfgCopy)
+		go obj.lowPower.Run()
 	}
 
 	// Shutdown on context cancellation
@@ -118,7 +140,7 @@ func (o *Obj) Close() error {
 	o.closeOnce.Do(func() {
 		o.cancel()
 		if o.lowPower != nil {
-			o.lowPower.stop()
+			o.lowPower.Stop()
 		}
 		o.stopComponents()
 	})
@@ -162,7 +184,7 @@ func (o *Obj) stopComponents() {
 
 	// Peer monitor depends on Core, stop it before Core.Stop()
 	if o.peerMonitor != nil {
-		o.peerMonitor.cancel()
+		o.peerMonitor.Cancel()
 		o.peerMonitor = nil
 	}
 	if o.Netstack != nil {
@@ -256,7 +278,7 @@ func (o *Obj) stopCoreWithTimeout() {
 // rollbackComponents stops partially initialized subsystems.
 func (o *Obj) rollbackComponents() {
 	if o.peerMonitor != nil {
-		o.peerMonitor.cancel()
+		o.peerMonitor.Cancel()
 		o.peerMonitor = nil
 	}
 	if o.socksListener != nil {
@@ -354,17 +376,11 @@ func (o *Obj) initNetworking(cfg ConfigObj, log core.Logger) error {
 	// Peer monitor
 	if cfg.PeerChangeCallback != nil {
 		pCtx, pCancel := context.WithCancel(o.componentsCtx)
-		o.peerMonitor = &peerMonitorObj{
-			core:        o.Core,
-			callback:    cfg.PeerChangeCallback,
-			connCounter: &o.connCounter,
-			ctx:         pCtx,
-			cancel:      pCancel,
-		}
+		o.peerMonitor = peers.NewMonitor(o.Core, cfg.PeerChangeCallback, &o.connCounter, pCtx, pCancel)
 		o.componentsWg.Add(1)
 		go func() {
 			defer o.componentsWg.Done()
-			o.peerMonitor.run()
+			o.peerMonitor.Run()
 		}()
 	}
 
@@ -377,16 +393,24 @@ func (o *Obj) initNetworking(cfg ConfigObj, log core.Logger) error {
 
 	// SOCKS5
 	if cfg.SocksAddr != "" {
-		if err := o.startSocks(cfg); err != nil {
+		result, err := mapping.StartSocks(o.nodeMapping, mapping.SocksConfigObj{
+			Addr:       cfg.SocksAddr,
+			Nameserver: cfg.Nameserver,
+			Verbose:    cfg.SocksVerbose,
+		}, o.socksReadyCh)
+		if err != nil {
 			return fmt.Errorf("SOCKS5: %w", err)
 		}
+		o.socksListener = result.Listener
+		o.socksIsUnix = result.IsUnix
+		o.socksAddr = cfg.SocksAddr
 	}
 
 	// Port forwarding
-	o.startLocalTCP(cfg.Mapping.LocalTCP)
-	o.startLocalUDP(cfg.Mapping.LocalUDP, cfg.UDPSessionTimeout)
-	o.startRemoteTCP(cfg.Mapping.RemoteTCP)
-	o.startRemoteUDP(cfg.Mapping.RemoteUDP, cfg.UDPSessionTimeout)
+	mapping.StartLocalTCP(o.nodeMapping, cfg.Mapping.LocalTCP)
+	mapping.StartLocalUDP(o.nodeMapping, cfg.Mapping.LocalUDP, cfg.UDPSessionTimeout)
+	mapping.StartRemoteTCP(o.nodeMapping, cfg.Mapping.RemoteTCP)
+	mapping.StartRemoteUDP(o.nodeMapping, cfg.Mapping.RemoteUDP, cfg.UDPSessionTimeout)
 
 	return nil
 }

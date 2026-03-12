@@ -1,60 +1,49 @@
 package yggstack
 
 import (
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
+
+	"github.com/yggdrasil-network/yggstack/mod/peers"
 )
 
 // // // // // // // // // //
 
-// PeerInfoObj holds peer state for JSON export.
-type PeerInfoObj struct {
-	URI       string  `json:"uri"`
-	Up        bool    `json:"up"`
-	Inbound   bool    `json:"inbound"`
-	PublicKey string  `json:"public_key"`
-	RXBytes   uint64  `json:"rx_bytes"`
-	TXBytes   uint64  `json:"tx_bytes"`
-	Uptime    float64 `json:"uptime_seconds"`
-	Latency   float64 `json:"latency_ms"`
-	LastError string  `json:"last_error,omitempty"`
-}
-
-// //
-
 // GetPeers returns a snapshot of all configured peers.
-func (o *Obj) GetPeers() []PeerInfoObj {
+func (o *Obj) GetPeers() []peers.InfoObj {
 	if o.Core == nil {
-		return []PeerInfoObj{}
+		return []peers.InfoObj{}
 	}
-	peers := o.Core.GetPeers()
-	result := make([]PeerInfoObj, 0, len(peers))
-	for _, p := range peers {
-		info := PeerInfoObj{
-			URI:     p.URI,
-			Up:      p.Up,
-			Inbound: p.Inbound,
-			RXBytes: p.RXBytes,
-			TXBytes: p.TXBytes,
-			Uptime:  p.Uptime.Seconds(),
-			Latency: float64(p.Latency.Microseconds()) / 1000.0,
-		}
-		if len(p.Key) > 0 {
-			info.PublicKey = hex.EncodeToString(p.Key)
-		}
-		if p.LastError != nil {
-			info.LastError = p.LastError.Error()
-		}
-		result = append(result, info)
-	}
-	return result
+	return peers.GetPeers(o.Core)
 }
 
-// GetPeersJSON returns peer stats as a JSON byte slice.
+// GetPeersJSON returns peer statistics in JSON format.
 func (o *Obj) GetPeersJSON() ([]byte, error) {
 	if o.Core == nil {
 		return nil, fmt.Errorf("node is not running")
 	}
-	return json.Marshal(o.GetPeers())
+	return peers.GetPeersJSON(o.Core)
+}
+
+// AddPeer adds a persistent peer at runtime.
+func (o *Obj) AddPeer(uri string) error {
+	if o.Core == nil {
+		return fmt.Errorf("node is not running")
+	}
+	return peers.AddPeer(o.Core, uri)
+}
+
+// RemovePeer removes a persistent peer at runtime.
+func (o *Obj) RemovePeer(uri string) error {
+	if o.Core == nil {
+		return fmt.Errorf("node is not running")
+	}
+	return peers.RemovePeer(o.Core, uri)
+}
+
+// RetryPeersNow forces an immediate reconnection attempt to all disconnected peers.
+func (o *Obj) RetryPeersNow() {
+	if o.Core == nil {
+		return
+	}
+	peers.RetryPeersNow(o.Core)
 }

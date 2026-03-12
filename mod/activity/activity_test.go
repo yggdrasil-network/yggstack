@@ -1,4 +1,4 @@
-package yggstack
+package activity
 
 import (
 	"errors"
@@ -13,19 +13,19 @@ import (
 
 // // // // // // // // // //
 
-type mockActivityCallbackObj struct {
+type mockCallbackObj struct {
 	created []string
 	closed  []string
 	mu      sync.Mutex
 }
 
-func (m *mockActivityCallbackObj) OnConnectionCreated(connId string, protocol string) {
+func (m *mockCallbackObj) OnConnectionCreated(connId string, protocol string) {
 	m.mu.Lock()
 	m.created = append(m.created, connId)
 	m.mu.Unlock()
 }
 
-func (m *mockActivityCallbackObj) OnConnectionClosed(connId string) {
+func (m *mockCallbackObj) OnConnectionClosed(connId string) {
 	m.mu.Lock()
 	m.closed = append(m.closed, connId)
 	m.mu.Unlock()
@@ -34,16 +34,16 @@ func (m *mockActivityCallbackObj) OnConnectionClosed(connId string) {
 // //
 
 func TestTrackedConnObj_Write(t *testing.T) {
-	cb := &mockActivityCallbackObj{}
-	counter := &connectionCounterObj{}
-	counter.increment()
+	cb := &mockCallbackObj{}
+	counter := &CounterObj{}
+	counter.Increment()
 
 	inner := &mockWritableConnObj{}
-	tracked := &trackedConnObj{
+	tracked := &TrackedConnObj{
 		Conn:     inner,
-		connId:   "test-conn-1",
-		callback: cb,
-		counter:  counter,
+		ConnId:   "test-conn-1",
+		Callback: cb,
+		Counter:  counter,
 	}
 
 	payload := []byte("hello yggdrasil")
@@ -57,18 +57,18 @@ func TestTrackedConnObj_Write(t *testing.T) {
 }
 
 func TestTrackedConnObj_Read(t *testing.T) {
-	cb := &mockActivityCallbackObj{}
-	counter := &connectionCounterObj{}
-	counter.increment()
+	cb := &mockCallbackObj{}
+	counter := &CounterObj{}
+	counter.Increment()
 
 	pr, pw := io.Pipe()
 	inner := &mockPipeConnObj{reader: pr, writer: pw}
 
-	tracked := &trackedConnObj{
+	tracked := &TrackedConnObj{
 		Conn:     inner,
-		connId:   "test-conn-2",
-		callback: cb,
-		counter:  counter,
+		ConnId:   "test-conn-2",
+		Callback: cb,
+		Counter:  counter,
 	}
 
 	payload := []byte("hello yggdrasil")
@@ -87,17 +87,17 @@ func TestTrackedConnObj_Read(t *testing.T) {
 }
 
 func TestTrackedConnObj_CloseIdempotent(t *testing.T) {
-	cb := &mockActivityCallbackObj{}
-	counter := &connectionCounterObj{}
-	counter.increment()
+	cb := &mockCallbackObj{}
+	counter := &CounterObj{}
+	counter.Increment()
 
 	inner := &mockConnObj{}
 
-	tracked := &trackedConnObj{
+	tracked := &TrackedConnObj{
 		Conn:     inner,
-		connId:   "test-close-1",
-		callback: cb,
-		counter:  counter,
+		ConnId:   "test-close-1",
+		Callback: cb,
+		Counter:  counter,
 	}
 
 	_ = tracked.Close()
@@ -112,8 +112,8 @@ func TestTrackedConnObj_CloseIdempotent(t *testing.T) {
 		t.Errorf("expected OnConnectionClosed called once, got %d", closedCount)
 	}
 
-	if counter.count() != 0 {
-		t.Errorf("expected counter=0 after close, got %d", counter.count())
+	if counter.Count() != 0 {
+		t.Errorf("expected counter=0 after close, got %d", counter.Count())
 	}
 
 	if inner.closed.Load() != 1 {
@@ -121,8 +121,8 @@ func TestTrackedConnObj_CloseIdempotent(t *testing.T) {
 	}
 }
 
-func TestConnectionCounterObj_Concurrent(t *testing.T) {
-	counter := &connectionCounterObj{}
+func TestCounterObj_Concurrent(t *testing.T) {
+	counter := &CounterObj{}
 	var wg sync.WaitGroup
 	n := 1000
 
@@ -130,32 +130,32 @@ func TestConnectionCounterObj_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			counter.increment()
+			counter.Increment()
 		}()
 	}
 	wg.Wait()
 
-	if counter.count() != int64(n) {
-		t.Errorf("expected %d, got %d", n, counter.count())
+	if counter.Count() != int64(n) {
+		t.Errorf("expected %d, got %d", n, counter.Count())
 	}
 
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			counter.decrement()
+			counter.Decrement()
 		}()
 	}
 	wg.Wait()
 
-	if counter.count() != 0 {
-		t.Errorf("expected 0, got %d", counter.count())
+	if counter.Count() != 0 {
+		t.Errorf("expected 0, got %d", counter.Count())
 	}
 }
 
 func TestGenerateConnId(t *testing.T) {
-	id1 := generateConnId("socks", "127.0.0.1:1080")
-	id2 := generateConnId("socks", "127.0.0.1:1080")
+	id1 := GenerateConnId("socks", "127.0.0.1:1080")
+	id2 := GenerateConnId("socks", "127.0.0.1:1080")
 
 	if !strings.HasPrefix(id1, "socks-127.0.0.1:1080-") {
 		t.Errorf("unexpected id format: %s", id1)
@@ -175,7 +175,7 @@ func TestGenerateConnId_BurstUniqueness(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			id := generateConnId("socks", "127.0.0.1:1080")
+			id := GenerateConnId("socks", "127.0.0.1:1080")
 			mu.Lock()
 			ids[id] = struct{}{}
 			mu.Unlock()
@@ -190,7 +190,21 @@ func TestGenerateConnId_BurstUniqueness(t *testing.T) {
 
 // //
 
-// mockWritableConnObj is a net.Conn that returns len(b) from Write.
+// mockConnObj implements net.Conn with Close() tracking.
+type mockConnObj struct {
+	closed atomic.Int32
+}
+
+func (m *mockConnObj) Read([]byte) (int, error)         { return 0, io.EOF }
+func (m *mockConnObj) Write([]byte) (int, error)        { return 0, nil }
+func (m *mockConnObj) Close() error                     { m.closed.Add(1); return nil }
+func (m *mockConnObj) LocalAddr() net.Addr              { return nil }
+func (m *mockConnObj) RemoteAddr() net.Addr             { return nil }
+func (m *mockConnObj) SetDeadline(time.Time) error      { return nil }
+func (m *mockConnObj) SetReadDeadline(time.Time) error  { return nil }
+func (m *mockConnObj) SetWriteDeadline(time.Time) error { return nil }
+
+// mockWritableConnObj implements net.Conn returning len(b) from Write.
 type mockWritableConnObj struct {
 	closed atomic.Int32
 }
@@ -204,7 +218,7 @@ func (m *mockWritableConnObj) SetDeadline(time.Time) error      { return nil }
 func (m *mockWritableConnObj) SetReadDeadline(time.Time) error  { return nil }
 func (m *mockWritableConnObj) SetWriteDeadline(time.Time) error { return nil }
 
-// mockPipeConnObj is a net.Conn backed by io.Pipe for testing Read/Write.
+// mockPipeConnObj implements net.Conn backed by io.Pipe for Read/Write testing.
 type mockPipeConnObj struct {
 	reader *io.PipeReader
 	writer *io.PipeWriter

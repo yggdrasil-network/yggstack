@@ -1,4 +1,4 @@
-package yggstack
+package peers
 
 import (
 	"encoding/json"
@@ -18,13 +18,12 @@ func TestGetPeers_NoPeers(t *testing.T) {
 	}
 	defer c.Stop()
 
-	obj := &Obj{Core: c}
-	peers := obj.GetPeers()
-	if peers == nil {
+	result := GetPeers(c)
+	if result == nil {
 		t.Fatal("GetPeers should return non-nil slice")
 	}
-	if len(peers) != 0 {
-		t.Fatalf("expected 0 peers, got %d", len(peers))
+	if len(result) != 0 {
+		t.Fatalf("expected 0 peers, got %d", len(result))
 	}
 }
 
@@ -36,20 +35,19 @@ func TestGetPeersJSON_ValidJSON(t *testing.T) {
 	}
 	defer c.Stop()
 
-	obj := &Obj{Core: c}
-	data, err := obj.GetPeersJSON()
+	data, err := GetPeersJSON(c)
 	if err != nil {
 		t.Fatalf("GetPeersJSON error: %s", err)
 	}
 
-	var result []PeerInfoObj
+	var result []InfoObj
 	if err := json.Unmarshal(data, &result); err != nil {
 		t.Fatalf("invalid JSON: %s", err)
 	}
 }
 
-func TestPeerInfoObj_JSONFields(t *testing.T) {
-	info := PeerInfoObj{
+func TestInfoObj_JSONFields(t *testing.T) {
+	info := InfoObj{
 		URI:       "tcp://example.com:443",
 		Up:        true,
 		Inbound:   false,

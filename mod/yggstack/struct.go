@@ -13,6 +13,10 @@ import (
 	"github.com/yggdrasil-network/yggdrasil-go/src/core"
 	"github.com/yggdrasil-network/yggdrasil-go/src/multicast"
 
+	"github.com/yggdrasil-network/yggstack/mod/activity"
+	"github.com/yggdrasil-network/yggstack/mod/lowpower"
+	"github.com/yggdrasil-network/yggstack/mod/mapping"
+	"github.com/yggdrasil-network/yggstack/mod/peers"
 	"github.com/yggdrasil-network/yggstack/src/netstack"
 )
 
@@ -53,11 +57,13 @@ type Obj struct {
 	closeOnce        sync.Once
 	closers          []io.Closer
 	closersMu        sync.Mutex
-	activityCallback ActivityCallbackInterface
-	connCounter      connectionCounterObj
-	peerMonitor      *peerMonitorObj
+	activityCallback activity.CallbackInterface
+	connCounter      activity.CounterObj
+	peerMonitor      peers.MonitorInterface
 	nodeConfig       *config.NodeConfig
-	lowPower         *lowPowerManagerObj
+	lowPower         lowpower.ManagerInterface
+	nodeMapping      mapping.NodeInterface
+	nodeControl      lowpower.NodeControlInterface
 	componentsMu     sync.RWMutex
 	componentsCtx    context.Context
 	componentsCancel context.CancelFunc

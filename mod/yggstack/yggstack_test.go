@@ -4,11 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
-	"os"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 
@@ -27,22 +24,6 @@ func (m *mockCloserObj) Close() error {
 	m.closed.Add(1)
 	return nil
 }
-
-// //
-
-// mockConnObj implements net.Conn with Close() tracking
-type mockConnObj struct {
-	closed atomic.Int32
-}
-
-func (m *mockConnObj) Read([]byte) (int, error)         { return 0, io.EOF }
-func (m *mockConnObj) Write([]byte) (int, error)        { return 0, nil }
-func (m *mockConnObj) Close() error                     { m.closed.Add(1); return nil }
-func (m *mockConnObj) LocalAddr() net.Addr              { return nil }
-func (m *mockConnObj) RemoteAddr() net.Addr             { return nil }
-func (m *mockConnObj) SetDeadline(time.Time) error      { return nil }
-func (m *mockConnObj) SetReadDeadline(time.Time) error  { return nil }
-func (m *mockConnObj) SetWriteDeadline(time.Time) error { return nil }
 
 // //
 
@@ -68,59 +49,6 @@ func TestNoopLoggerObj(t *testing.T) {
 	noop.Debugf("debug %s", "x")
 	noop.Debugln("debug")
 	noop.Traceln("trace")
-}
-
-func TestIsErrorAddressAlreadyInUse(t *testing.T) {
-	tests := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{
-			name: "nil error",
-			err:  nil,
-			want: false,
-		},
-		{
-			name: "io.EOF",
-			err:  io.EOF,
-			want: false,
-		},
-		{
-			name: "random error",
-			err:  fmt.Errorf("something failed"),
-			want: false,
-		},
-		{
-			name: "EADDRINUSE",
-			err:  &os.SyscallError{Syscall: "bind", Err: syscall.EADDRINUSE},
-			want: true,
-		},
-		{
-			name: "ECONNREFUSED",
-			err:  &os.SyscallError{Syscall: "connect", Err: syscall.ECONNREFUSED},
-			want: false,
-		},
-		{
-			name: "wrapped EADDRINUSE",
-			err:  fmt.Errorf("listen: %w", &os.SyscallError{Syscall: "bind", Err: syscall.EADDRINUSE}),
-			want: true,
-		},
-		{
-			name: "wrapped non-EADDRINUSE",
-			err:  fmt.Errorf("listen: %w", &os.SyscallError{Syscall: "bind", Err: syscall.EPERM}),
-			want: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isErrorAddressAlreadyInUse(tt.err)
-			if got != tt.want {
-				t.Errorf("isErrorAddressAlreadyInUse(%v) = %v, want %v", tt.err, got, tt.want)
-			}
-		})
-	}
 }
 
 func TestAddCloser(t *testing.T) {
@@ -225,40 +153,6 @@ func TestCloseNilFields(t *testing.T) {
 	if err := obj.Close(); err != nil {
 		t.Fatalf("Close() returned error: %v", err)
 	}
-}
-
-func TestUDPSessionLastActivity(t *testing.T) {
-	session := &udpSessionObj{
-		conn: &mockConnObj{},
-	}
-
-	// Initial value is zero
-	if v := session.lastActivity.Load(); v != 0 {
-		t.Errorf("initial lastActivity = %d, want 0", v)
-	}
-
-	// Store and load
-	now := time.Now().Unix()
-	session.lastActivity.Store(now)
-	if v := session.lastActivity.Load(); v != now {
-		t.Errorf("lastActivity = %d, want %d", v, now)
-	}
-
-	// Concurrent Store/Load must not race
-	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
-		wg.Add(2)
-		ts := int64(i)
-		go func() {
-			defer wg.Done()
-			session.lastActivity.Store(ts)
-		}()
-		go func() {
-			defer wg.Done()
-			_ = session.lastActivity.Load()
-		}()
-	}
-	wg.Wait()
 }
 
 func TestStopCoreWithTimeout_ZeroMeansNoTimeout(t *testing.T) {
@@ -385,50 +279,4 @@ func TestComponentsCtx_NewGeneration(t *testing.T) {
 	}
 
 	obj.componentsCancel()
-}
-
-// //
-
-func TestCleanupUDPSessions(t *testing.T) {
-	obj := &Obj{logger: noopLoggerObj{}}
-
-	timeout := 100 * time.Millisecond
-	now := time.Now().Unix()
-
-	expiredConn := &mockConnObj{}
-	activeConn := &mockConnObj{}
-
-	expired := &udpSessionObj{conn: expiredConn}
-	expired.lastActivity.Store(now - 10) // Well past timeout
-
-	active := &udpSessionObj{conn: activeConn}
-	active.lastActivity.Store(now + 60) // Far in the future
-
-	sessions := &udpSessionMapObj{data: make(map[string]*udpSessionObj)}
-	sessions.Store("expired", expired)
-	sessions.Store("active", active)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	go obj.cleanupUDPSessions(ctx, sessions, timeout)
-
-	// Wait for at least one cleanup tick (timeout/4 = 25ms) + margin
-	time.Sleep(timeout/2 + 20*time.Millisecond)
-
-	// Expired session must be removed and connection closed
-	if _, ok := sessions.Load("expired"); ok {
-		t.Error("expired session was not cleaned up")
-	}
-	if expiredConn.closed.Load() == 0 {
-		t.Error("expired session conn was not closed")
-	}
-
-	// Active session must remain
-	if _, ok := sessions.Load("active"); !ok {
-		t.Error("active session was incorrectly removed")
-	}
-	if activeConn.closed.Load() != 0 {
-		t.Error("active session conn was unexpectedly closed")
-	}
 }

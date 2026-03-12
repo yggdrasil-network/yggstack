@@ -1,4 +1,4 @@
-package yggstack
+package peers
 
 import (
 	"context"
@@ -8,18 +8,36 @@ import (
 
 	"github.com/yggdrasil-network/yggdrasil-go/src/config"
 	"github.com/yggdrasil-network/yggdrasil-go/src/core"
+
+	"github.com/yggdrasil-network/yggstack/mod/activity"
 )
 
 // // // // // // // // // //
 
-// mockPeerCallbackObj is a test callback for peerMonitor.
-type mockPeerCallbackObj struct {
+type noopLoggerObj struct{}
+
+func (noopLoggerObj) Printf(string, ...interface{}) {}
+func (noopLoggerObj) Println(...interface{})        {}
+func (noopLoggerObj) Infof(string, ...interface{})  {}
+func (noopLoggerObj) Infoln(...interface{})         {}
+func (noopLoggerObj) Warnf(string, ...interface{})  {}
+func (noopLoggerObj) Warnln(...interface{})         {}
+func (noopLoggerObj) Errorf(string, ...interface{}) {}
+func (noopLoggerObj) Errorln(...interface{})        {}
+func (noopLoggerObj) Debugf(string, ...interface{}) {}
+func (noopLoggerObj) Debugln(...interface{})        {}
+func (noopLoggerObj) Traceln(...interface{})        {}
+
+// //
+
+// mockCallbackObj is a test callback for MonitorObj.
+type mockCallbackObj struct {
 	calls     atomic.Int64
 	lastConn  atomic.Int64
 	lastTotal atomic.Int64
 }
 
-func (m *mockPeerCallbackObj) OnPeerCountChanged(connected int64, total int64) {
+func (m *mockCallbackObj) OnPeerCountChanged(connected int64, total int64) {
 	m.calls.Add(1)
 	m.lastConn.Store(connected)
 	m.lastTotal.Store(total)
@@ -27,8 +45,7 @@ func (m *mockPeerCallbackObj) OnPeerCountChanged(connected int64, total int64) {
 
 // //
 
-func TestPeerMonitorObj_PollDetectsChanges(t *testing.T) {
-	// Create a real Core with empty config — no peers
+func TestMonitorObj_PollDetectsChanges(t *testing.T) {
 	cfg := config.GenerateConfig()
 	c, err := core.New(cfg.Certificate, noopLoggerObj{})
 	if err != nil {
@@ -36,27 +53,20 @@ func TestPeerMonitorObj_PollDetectsChanges(t *testing.T) {
 	}
 	defer c.Stop()
 
-	cb := &mockPeerCallbackObj{}
+	cb := &mockCallbackObj{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	m := &peerMonitorObj{
-		core:     c,
-		callback: cb,
-		ctx:      ctx,
-		cancel:   cancel,
-	}
+	m := NewMonitor(c, cb, nil, ctx, cancel)
 
-	// Initial poll — 0 peers
-	m.poll()
-	// Callback is not fired on 0->0 (lastConn/lastTotal default to 0)
-	// So the first poll with 0/0 does not trigger the callback
+	// 0 peers — callback is not fired (0/0 → 0/0)
+	m.Poll()
 	if cb.calls.Load() != 0 {
 		t.Fatalf("expected 0 calls for 0/0 initial state, got %d", cb.calls.Load())
 	}
 }
 
-func TestPeerMonitorObj_RunExitsOnCancel(t *testing.T) {
+func TestMonitorObj_RunExitsOnCancel(t *testing.T) {
 	cfg := config.GenerateConfig()
 	c, err := core.New(cfg.Certificate, noopLoggerObj{})
 	if err != nil {
@@ -64,19 +74,14 @@ func TestPeerMonitorObj_RunExitsOnCancel(t *testing.T) {
 	}
 	defer c.Stop()
 
-	cb := &mockPeerCallbackObj{}
+	cb := &mockCallbackObj{}
 	ctx, cancel := context.WithCancel(context.Background())
 
-	m := &peerMonitorObj{
-		core:     c,
-		callback: cb,
-		ctx:      ctx,
-		cancel:   cancel,
-	}
+	m := NewMonitor(c, cb, nil, ctx, cancel)
 
 	done := make(chan struct{})
 	go func() {
-		m.run()
+		m.Run()
 		close(done)
 	}()
 
@@ -84,13 +89,12 @@ func TestPeerMonitorObj_RunExitsOnCancel(t *testing.T) {
 
 	select {
 	case <-done:
-		// ok, goroutine exited
 	case <-time.After(2 * time.Second):
-		t.Fatal("peerMonitor.run() did not exit after cancel")
+		t.Fatal("MonitorObj.Run() did not exit after cancel")
 	}
 }
 
-func TestPeerMonitorObj_PollCtxCancelled(t *testing.T) {
+func TestMonitorObj_PollCtxCancelled(t *testing.T) {
 	cfg := config.GenerateConfig()
 	c, err := core.New(cfg.Certificate, noopLoggerObj{})
 	if err != nil {
@@ -98,26 +102,20 @@ func TestPeerMonitorObj_PollCtxCancelled(t *testing.T) {
 	}
 	defer c.Stop()
 
-	cb := &mockPeerCallbackObj{}
+	cb := &mockCallbackObj{}
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
+	cancel()
 
-	m := &peerMonitorObj{
-		core:     c,
-		callback: cb,
-		ctx:      ctx,
-		cancel:   cancel,
-	}
+	m := NewMonitor(c, cb, nil, ctx, cancel)
 
-	// poll() with cancelled context must not panic
-	m.poll()
-	// Callback not called — poll() does early return
+	// Poll() with cancelled context must not panic
+	m.Poll()
 	if cb.calls.Load() != 0 {
 		t.Fatalf("expected 0 calls after cancelled context, got %d", cb.calls.Load())
 	}
 }
 
-func TestPeerMonitorObj_AdaptivePolling(t *testing.T) {
+func TestMonitorObj_AdaptivePolling(t *testing.T) {
 	cfg := config.GenerateConfig()
 	c, err := core.New(cfg.Certificate, noopLoggerObj{})
 	if err != nil {
@@ -125,20 +123,14 @@ func TestPeerMonitorObj_AdaptivePolling(t *testing.T) {
 	}
 	defer c.Stop()
 
-	cb := &mockPeerCallbackObj{}
-	counter := &connectionCounterObj{}
+	cb := &mockCallbackObj{}
+	counter := &activity.CounterObj{}
 	ctx, cancel := context.WithCancel(context.Background())
 
-	m := &peerMonitorObj{
-		core:        c,
-		callback:    cb,
-		connCounter: counter,
-		ctx:         ctx,
-		cancel:      cancel,
-	}
+	m := NewMonitor(c, cb, counter, ctx, cancel)
 
-	// Simulate an active connection — polling switches to peerPollFast
-	counter.increment()
+	// Simulate an active connection — polling switches to pollFast
+	counter.Increment()
 
 	// Set fake lastConn/lastTotal so the first poll detects a "change"
 	m.lastConn = 999
@@ -146,17 +138,14 @@ func TestPeerMonitorObj_AdaptivePolling(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		m.run()
+		m.Run()
 		close(done)
 	}()
 
-	// Wait long enough for initial poll + at least 1 tick (with 0 real peers
-	// callback fires only when detecting the 999->0 change)
-	time.Sleep(peerPollFast*2 + 200*time.Millisecond)
+	time.Sleep(pollFast*2 + 200*time.Millisecond)
 	cancel()
 	<-done
 
-	// Verify that polling with connCounter > 0 invoked the callback at least once
 	if cb.calls.Load() < 1 {
 		t.Fatalf("expected >= 1 poll call during adaptive polling, got %d", cb.calls.Load())
 	}

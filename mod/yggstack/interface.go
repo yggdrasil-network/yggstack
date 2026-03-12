@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/ed25519"
 	"net"
+
+	"github.com/yggdrasil-network/yggstack/mod/peers"
 )
 
 // // // // // // // // // //
@@ -18,13 +20,13 @@ type Interface interface {
 	Address() net.IP
 	Subnet() net.IPNet
 	PublicKey() ed25519.PublicKey
-	GetPeers() []PeerInfoObj
+	GetPeers() []peers.InfoObj
 	GetPeersJSON() ([]byte, error)
 	AddPeer(uri string) error
 	RemovePeer(uri string) error
 	RetryPeersNow()
+	IsLowPower() bool
+	ActiveConnections() int64
+	WakeLowPower() error
 	Close() error
 }
-
-// Compile-time check
-var _ Interface = (*Obj)(nil)

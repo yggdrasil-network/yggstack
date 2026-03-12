@@ -9,6 +9,10 @@ import (
 	"github.com/yggdrasil-network/yggdrasil-go/src/config"
 	"github.com/yggdrasil-network/yggdrasil-go/src/core"
 
+	"github.com/yggdrasil-network/yggstack/mod/activity"
+	"github.com/yggdrasil-network/yggstack/mod/lowpower"
+	"github.com/yggdrasil-network/yggstack/mod/mapping"
+	"github.com/yggdrasil-network/yggstack/mod/peers"
 	"github.com/yggdrasil-network/yggstack/src/types"
 )
 
@@ -65,12 +69,12 @@ type ConfigObj struct {
 
 	// ActivityCallback receives notifications on connection lifecycle (create/transfer/close).
 	// When nil, connections are not wrapped — zero overhead.
-	ActivityCallback ActivityCallbackInterface
+	ActivityCallback activity.CallbackInterface
 
 	// PeerChangeCallback receives notifications when the number of connected peers changes.
 	// Uses adaptive polling: 500ms with active connections, 5s when idle.
 	// When nil, peer monitoring is disabled.
-	PeerChangeCallback PeerChangeCallbackInterface
+	PeerChangeCallback peers.ChangeCallbackInterface
 
 	// CoreStopTimeout limits the time spent waiting for core.Stop() to complete.
 	// When the timeout is exceeded, shutdown continues without waiting.
@@ -81,7 +85,18 @@ type ConfigObj struct {
 	// LowPower enables power saving: when no active connections exist for longer than
 	// IdleTimeout, the node stops. On incoming connection — restarts automatically.
 	// nil = disabled. Requires ActivityCallback != nil.
-	LowPower *LowPowerConfigObj
+	LowPower *lowpower.ConfigObj
+
+	// NodeMapping overrides the default mapping.NodeInterface implementation.
+	// Controls how SOCKS5, TCP/UDP forwarding interact with the node (netstack, logging, etc.).
+	// When nil, the built-in adapter that delegates to *Obj is used.
+	NodeMapping mapping.NodeInterface
+
+	// NodeControl overrides the default lowpower.NodeControlInterface implementation.
+	// Controls how low power mode stops/starts node components.
+	// When nil, the built-in adapter that delegates to *Obj is used.
+	// Only relevant when LowPower is enabled.
+	NodeControl lowpower.NodeControlInterface
 }
 
 // //
@@ -115,10 +130,4 @@ type MappingConfigObj struct {
 	// Example: ygg-port 53 -> forward to 127.0.0.1:53.
 	// CLI equivalent: -remote-udp 53:127.0.0.1:53
 	RemoteUDP []types.UDPMapping
-}
-
-// LowPowerConfigObj holds low power mode parameters.
-type LowPowerConfigObj struct {
-	// IdleTimeout is the idle duration before entering sleep. Default: 60s.
-	IdleTimeout time.Duration
 }

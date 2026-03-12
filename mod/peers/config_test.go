@@ -1,4 +1,4 @@
-package yggstack
+package peers
 
 import (
 	"strings"
@@ -18,8 +18,7 @@ func TestAddPeer_InvalidURI(t *testing.T) {
 	}
 	defer c.Stop()
 
-	obj := &Obj{Core: c}
-	err = obj.AddPeer("://invalid")
+	err = AddPeer(c, "://invalid")
 	if err == nil {
 		t.Fatal("expected error for invalid URI")
 	}
@@ -33,8 +32,7 @@ func TestRemovePeer_InvalidURI(t *testing.T) {
 	}
 	defer c.Stop()
 
-	obj := &Obj{Core: c}
-	err = obj.RemovePeer("://invalid")
+	err = RemovePeer(c, "://invalid")
 	if err == nil {
 		t.Fatal("expected error for invalid URI")
 	}
@@ -48,8 +46,7 @@ func TestAddPeer_ValidURI(t *testing.T) {
 	}
 	defer c.Stop()
 
-	obj := &Obj{Core: c}
-	err = obj.AddPeer("tcp://192.0.2.1:12345")
+	err = AddPeer(c, "tcp://192.0.2.1:12345")
 	if err != nil {
 		if !strings.Contains(err.Error(), "unsupported") {
 			t.Fatalf("unexpected error: %s", err)
@@ -65,6 +62,5 @@ func TestRetryPeersNow_NoPanic(t *testing.T) {
 	}
 	defer c.Stop()
 
-	obj := &Obj{Core: c}
-	obj.RetryPeersNow()
+	RetryPeersNow(c)
 }
