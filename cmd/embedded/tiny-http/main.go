@@ -39,6 +39,8 @@ func main() {
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			fmt.Fprint(w, "hello from the network")
 		}),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}).Serve(tcpListener)
 	fmt.Printf("HTTP    http://localhost:%d\n", port)
 
@@ -65,6 +67,8 @@ func main() {
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			fmt.Fprint(w, "hello from the Yggdrasil network")
 		}),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}).Serve(yggListener)
 	fmt.Printf("Yggdrasil http://[%s]:%d\n", ygg.Address(), port)
 

@@ -171,7 +171,7 @@ func handlePing(w http.ResponseWriter, _ *http.Request) {
 }
 
 func handleInput(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 10*1024))
 	if err != nil {
 		return
 	}

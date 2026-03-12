@@ -38,7 +38,7 @@ type mockNodeControlObj struct {
 	startErr     error
 }
 
-func (m *mockNodeControlObj) StopComponents()                   { m.stopCalled.Add(1) }
+func (m *mockNodeControlObj) StopComponents() { m.stopCalled.Add(1) }
 func (m *mockNodeControlObj) StartComponents(interface{}) error {
 	m.startCalled.Add(1)
 	return m.startErr
@@ -55,7 +55,7 @@ func newTestLPM(t *testing.T, idleTimeout time.Duration) (*ManagerObj, *mockNode
 	node := &mockNodeControlObj{socksReadyCh: make(chan struct{})}
 	cfg := ConfigObj{IdleTimeout: idleTimeout}
 	ctx, cancel := context.WithCancel(context.Background())
-	m := NewManager(node, cfg, ctx, cancel, noopLoggerObj{})
+	m := NewManager(node, cfg, ctx, noopLoggerObj{})
 	return m, node, cancel
 }
 
@@ -74,12 +74,13 @@ func TestManagerObj_TouchActivity(t *testing.T) {
 	m, _, cancel := newTestLPM(t, 60*time.Second)
 	defer cancel()
 
-	before := m.lastActivityAt.Load()
-	time.Sleep(10 * time.Millisecond)
+	// Set lastActivity to a known past timestamp
+	past := time.Now().Add(-10 * time.Second).Unix()
+	m.lastActivityAt.Store(past)
 	m.touchActivity()
 	after := m.lastActivityAt.Load()
-	if after < before {
-		t.Fatalf("touchActivity should advance timestamp: before=%d, after=%d", before, after)
+	if after <= past {
+		t.Fatalf("touchActivity should advance timestamp: past=%d, after=%d", past, after)
 	}
 }
 
@@ -186,14 +187,13 @@ func TestManagerObj_IsLowPower(t *testing.T) {
 
 // //
 
-func TestManagerObj_RunIdleDetection(t *testing.T) {
+func TestManagerObj_TransitionOnStaleActivity(t *testing.T) {
 	m, _, cancel := newTestLPM(t, 1*time.Millisecond)
 	defer cancel()
 
-	// Shift lastActivity far into the past
+	// Shift lastActivity far into the past so idle exceeds timeout
 	m.lastActivityAt.Store(time.Now().Add(-1 * time.Hour).Unix())
 
-	// Call transitionToLowPower directly (Run() uses 10s ticker)
 	m.transitionToLowPower()
 	if m.state.Load() != StateLowPower {
 		t.Fatalf("expected StateLowPower after idle, got %d", m.state.Load())
@@ -221,7 +221,7 @@ func TestManagerObj_SetOrigConfig(t *testing.T) {
 	cfg := map[string]string{"key": "value"}
 	m.SetOrigConfig(cfg)
 
-	stored, ok := m.origCfg.(map[string]string)
+	stored, ok := m.OrigConfig().(map[string]string)
 	if !ok {
 		t.Fatal("SetOrigConfig should store the value as-is")
 	}
@@ -244,7 +244,9 @@ func TestManagerObj_WakeTrigger_AcceptsConnection(t *testing.T) {
 	addr := ln.Addr().String()
 	ln.Close()
 
-	m.startWakeTrigger(addr)
+	if err := m.startWakeTrigger(addr); err != nil {
+		t.Fatalf("startWakeTrigger: %s", err)
+	}
 	defer m.stopWakeTrigger()
 
 	// Wake trigger should accept the connection
@@ -275,7 +277,7 @@ func TestManagerObj_WakeTrigger_ProxiesViaSocks(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	m := NewManager(node, cfg, ctx, cancel, noopLoggerObj{})
+	m := NewManager(node, cfg, ctx, noopLoggerObj{})
 
 	go func() {
 		for {
@@ -303,7 +305,9 @@ func TestManagerObj_WakeTrigger_ProxiesViaSocks(t *testing.T) {
 	triggerAddr := triggerLn.Addr().String()
 	triggerLn.Close()
 
-	m.startWakeTrigger(triggerAddr)
+	if err := m.startWakeTrigger(triggerAddr); err != nil {
+		t.Fatalf("startWakeTrigger: %s", err)
+	}
 	defer m.stopWakeTrigger()
 
 	// Connect to wake trigger — data should be proxied through SOCKS
@@ -343,10 +347,12 @@ func TestManagerObj_WakeTrigger_UnixSocket(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	m := NewManager(node, cfg, ctx, cancel, noopLoggerObj{})
+	m := NewManager(node, cfg, ctx, noopLoggerObj{})
 	m.socksWaitTimeout = 200 * time.Millisecond
 
-	m.startWakeTrigger(sockPath)
+	if err := m.startWakeTrigger(sockPath); err != nil {
+		t.Fatalf("startWakeTrigger: %s", err)
+	}
 	defer m.stopWakeTrigger()
 
 	conn, err := net.DialTimeout("unix", sockPath, 2*time.Second)
@@ -367,7 +373,9 @@ func TestManagerObj_StopWakeTrigger(t *testing.T) {
 	addr := ln.Addr().String()
 	ln.Close()
 
-	m.startWakeTrigger(addr)
+	if err := m.startWakeTrigger(addr); err != nil {
+		t.Fatalf("startWakeTrigger: %s", err)
+	}
 	m.stopWakeTrigger()
 
 	_, err = net.DialTimeout("tcp", addr, 500*time.Millisecond)

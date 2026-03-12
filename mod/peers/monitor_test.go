@@ -57,12 +57,23 @@ func TestMonitorObj_PollDetectsChanges(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	m := NewMonitor(c, cb, nil, ctx, cancel)
+	m := NewMonitor(c, cb, nil, ctx)
 
 	// 0 peers — callback is not fired (0/0 → 0/0)
 	m.Poll()
 	if cb.calls.Load() != 0 {
 		t.Fatalf("expected 0 calls for 0/0 initial state, got %d", cb.calls.Load())
+	}
+
+	// Seed stale values so the next Poll() detects a change (999/999 → 0/0)
+	m.lastConn.Store(999)
+	m.lastTotal.Store(999)
+	m.Poll()
+	if cb.calls.Load() != 1 {
+		t.Fatalf("expected 1 call after change, got %d", cb.calls.Load())
+	}
+	if cb.lastConn.Load() != 0 || cb.lastTotal.Load() != 0 {
+		t.Fatalf("callback should report 0/0, got %d/%d", cb.lastConn.Load(), cb.lastTotal.Load())
 	}
 }
 
@@ -77,7 +88,7 @@ func TestMonitorObj_RunExitsOnCancel(t *testing.T) {
 	cb := &mockCallbackObj{}
 	ctx, cancel := context.WithCancel(context.Background())
 
-	m := NewMonitor(c, cb, nil, ctx, cancel)
+	m := NewMonitor(c, cb, nil, ctx)
 
 	done := make(chan struct{})
 	go func() {
@@ -106,7 +117,7 @@ func TestMonitorObj_PollCtxCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	m := NewMonitor(c, cb, nil, ctx, cancel)
+	m := NewMonitor(c, cb, nil, ctx)
 
 	// Poll() with cancelled context must not panic
 	m.Poll()
@@ -127,14 +138,14 @@ func TestMonitorObj_AdaptivePolling(t *testing.T) {
 	counter := &activity.CounterObj{}
 	ctx, cancel := context.WithCancel(context.Background())
 
-	m := NewMonitor(c, cb, counter, ctx, cancel)
+	m := NewMonitor(c, cb, counter, ctx)
 
 	// Simulate an active connection — polling switches to pollFast
 	counter.Increment()
 
 	// Set fake lastConn/lastTotal so the first poll detects a "change"
-	m.lastConn = 999
-	m.lastTotal = 999
+	m.lastConn.Store(999)
+	m.lastTotal.Store(999)
 
 	done := make(chan struct{})
 	go func() {

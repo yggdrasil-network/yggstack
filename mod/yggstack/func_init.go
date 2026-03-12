@@ -1,7 +1,6 @@
 package yggstack
 
 import (
-	"context"
 	"encoding/hex"
 	"fmt"
 	"regexp"
@@ -70,8 +69,12 @@ func (o *Obj) initMulticast(cfg ConfigObj, nodeCfg *config.NodeConfig) error {
 	}
 	var options []multicast.SetupOption
 	for _, intf := range nodeCfg.MulticastInterfaces {
+		re, err := regexp.Compile(intf.Regex)
+		if err != nil {
+			return fmt.Errorf("invalid multicast interface regex %q: %w", intf.Regex, err)
+		}
 		options = append(options, multicast.MulticastInterface{
-			Regex:    regexp.MustCompile(intf.Regex),
+			Regex:    re,
 			Beacon:   intf.Beacon,
 			Listen:   intf.Listen,
 			Port:     intf.Port,
@@ -92,8 +95,7 @@ func (o *Obj) initMulticast(cfg ConfigObj, nodeCfg *config.NodeConfig) error {
 func (o *Obj) initNetworking(cfg ConfigObj, log core.Logger) error {
 	// Peer monitor
 	if cfg.PeerChangeCallback != nil {
-		pCtx, pCancel := context.WithCancel(o.componentsCtx)
-		o.peerMonitor = peers.NewMonitor(o.Core, cfg.PeerChangeCallback, &o.connCounter, pCtx, pCancel)
+		o.peerMonitor = peers.NewMonitor(o.Core, cfg.PeerChangeCallback, &o.connCounter, o.componentsCtx)
 		o.componentsWg.Add(1)
 		go func() {
 			defer o.componentsWg.Done()

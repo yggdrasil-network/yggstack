@@ -95,7 +95,11 @@ func main() {
 			fmt.Printf("Error: listen HTTP :%d: %v\n", port, err)
 			os.Exit(1)
 		}
-		go (&http.Server{Handler: buildMux(*wwwPath, info, false, qrHandler)}).Serve(l)
+		go (&http.Server{
+			Handler:           buildMux(*wwwPath, info, false, qrHandler),
+			ReadHeaderTimeout: 10 * time.Second,
+			IdleTimeout:       60 * time.Second,
+		}).Serve(l)
 		fmt.Printf("HTTP       http://%s:%d/\n", cfg.Hostname, port)
 	}
 
@@ -106,7 +110,11 @@ func main() {
 			fmt.Printf("Error: listen Yggdrasil :%d: %v\n", port, err)
 			os.Exit(1)
 		}
-		go (&http.Server{Handler: buildMux(*wwwPath, info, true, qrHandler)}).Serve(l)
+		go (&http.Server{
+			Handler:           buildMux(*wwwPath, info, true, qrHandler),
+			ReadHeaderTimeout: 10 * time.Second,
+			IdleTimeout:       60 * time.Second,
+		}).Serve(l)
 		fmt.Printf("Yggdrasil  http://[%s]:%d/\n", yggAddr, port)
 	}
 

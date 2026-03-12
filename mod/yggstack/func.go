@@ -30,7 +30,11 @@ func (o *Obj) startComponents(cfg ConfigObj) (retErr error) {
 			o.netstackPtr.Store(nil)
 			o.rollbackComponents()
 			o.componentsCancel()
+			// Release lock before Wait: goroutines may call methods
+			// protected by componentsMu.RLock() during shutdown.
+			o.componentsMu.Unlock()
 			o.componentsWg.Wait()
+			o.componentsMu.Lock()
 			o.componentsCancel = nil
 			o.componentsCtx = nil
 		}
@@ -55,8 +59,8 @@ func (o *Obj) startComponents(cfg ConfigObj) (retErr error) {
 // stopComponents shuts down subsystems without finalizing Obj.
 // Called from Close() and from LPM when entering sleep.
 func (o *Obj) stopComponents() {
+	// Phase 1: signal all goroutines to stop and close listeners.
 	o.componentsMu.Lock()
-	defer o.componentsMu.Unlock()
 
 	if o.componentsCancel != nil {
 		o.componentsCancel()
@@ -79,7 +83,14 @@ func (o *Obj) stopComponents() {
 	o.closers = nil
 	o.closersMu.Unlock()
 
+	// Release lock before Wait: goroutines tracked by componentsWg
+	// may invoke callbacks that call methods protected by componentsMu.RLock().
+	o.componentsMu.Unlock()
 	o.componentsWg.Wait()
+
+	// Phase 2: tear down subsystems and nil out fields.
+	o.componentsMu.Lock()
+	defer o.componentsMu.Unlock()
 
 	if o.peerMonitor != nil {
 		o.peerMonitor.Cancel()

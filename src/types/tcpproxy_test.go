@@ -96,25 +96,18 @@ func TestProxyTCP_HalfCloseUnblocks(t *testing.T) {
 func BenchmarkProxyTCP(b *testing.B) {
 	payload := bytes.Repeat([]byte("x"), 4096)
 
+	left1, right1 := net.Pipe()
+	left2, right2 := net.Pipe()
+	defer left1.Close()
+	defer left2.Close()
+
+	go ProxyTCP(right1, right2)
+
+	buf := make([]byte, len(payload))
 	b.ReportAllocs()
 	b.ResetTimer()
-
 	for i := 0; i < b.N; i++ {
-		left1, right1 := net.Pipe()
-		left2, right2 := net.Pipe()
-
-		done := make(chan struct{})
-		go func() {
-			ProxyTCP(right1, right2)
-			close(done)
-		}()
-
 		go left1.Write(payload)
-		buf := make([]byte, len(payload))
 		io.ReadFull(left2, buf)
-
-		left1.Close()
-		left2.Close()
-		<-done
 	}
 }

@@ -1,6 +1,7 @@
 package lowpower
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"sync"
@@ -28,7 +29,7 @@ const (
 
 // //
 
-func (m *ManagerObj) startWakeTrigger(addr string) {
+func (m *ManagerObj) startWakeTrigger(addr string) error {
 	network := "tcp"
 	if m.node.SocksIsUnix() {
 		network = "unix"
@@ -37,8 +38,7 @@ func (m *ManagerObj) startWakeTrigger(addr string) {
 	}
 	listener, err := net.Listen(network, addr)
 	if err != nil {
-		m.logger.Errorf("Low power mode: failed to start wake trigger on %s %s: %s", network, addr, err)
-		return
+		return fmt.Errorf("wake trigger listen %s %s: %w", network, addr, err)
 	}
 	m.wakeTrigger.mu.Lock()
 	m.wakeTrigger.listener = listener
@@ -62,16 +62,16 @@ func (m *ManagerObj) startWakeTrigger(addr string) {
 			go m.handleWakeConnection(conn)
 		}
 	}()
+	return nil
 }
 
 // handleWakeConnection wakes the node, waits for SOCKS readiness and proxies the connection.
+// ProxyTCP closes both connections, so early-return paths close conn explicitly.
 func (m *ManagerObj) handleWakeConnection(conn net.Conn) {
 	defer m.wakeTrigger.wg.Done()
-	defer conn.Close()
 
 	m.TransitionToFullPower()
 
-	// Wait for SOCKS listener to become ready via channel
 	network := "tcp"
 	if m.node.SocksIsUnix() {
 		network = "unix"
@@ -79,22 +79,36 @@ func (m *ManagerObj) handleWakeConnection(conn net.Conn) {
 
 	select {
 	case <-m.node.SocksReadyCh():
-		// SOCKS is ready
 	case <-time.After(m.socksWaitTimeout):
 		m.logger.Errorf("Low power mode: SOCKS not ready after %s, dropping wake connection", m.socksWaitTimeout)
+		_ = conn.Close()
 		return
 	case <-m.ctx.Done():
+		_ = conn.Close()
 		return
 	}
 
 	socksConn, err := net.DialTimeout(network, m.node.SocksAddr(), wakeSOCKSDialTimeout)
 	if err != nil {
 		m.logger.Errorf("Low power mode: failed to connect to SOCKS %s: %s", m.node.SocksAddr(), err)
+		_ = conn.Close()
 		return
 	}
-	defer socksConn.Close()
+
+	// Close connections on context cancellation so ProxyTCP unblocks.
+	// Without this, Stop() would hang on wg.Wait() while io.Copy blocks.
+	proxyDone := make(chan struct{})
+	go func() {
+		select {
+		case <-m.ctx.Done():
+			_ = conn.Close()
+			_ = socksConn.Close()
+		case <-proxyDone:
+		}
+	}()
 
 	types.ProxyTCP(conn, socksConn)
+	close(proxyDone)
 }
 
 // closeWakeListener closes the listener without waiting for goroutines.

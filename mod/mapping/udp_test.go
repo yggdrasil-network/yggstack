@@ -52,7 +52,7 @@ func TestUDPSessionLastActivity(t *testing.T) {
 		t.Errorf("initial LastActivity = %d, want 0", v)
 	}
 
-	now := time.Now().Unix()
+	now := time.Now().UnixMilli()
 	session.LastActivity.Store(now)
 	if v := session.LastActivity.Load(); v != now {
 		t.Errorf("LastActivity = %d, want %d", v, now)
@@ -77,16 +77,16 @@ func TestUDPSessionLastActivity(t *testing.T) {
 
 func TestCleanupUDPSessions(t *testing.T) {
 	timeout := 100 * time.Millisecond
-	now := time.Now().Unix()
+	now := time.Now().UnixMilli()
 
 	expiredConn := &mockConnObj{}
 	activeConn := &mockConnObj{}
 
 	expired := &UDPSessionObj{Conn: expiredConn}
-	expired.LastActivity.Store(now - 10)
+	expired.LastActivity.Store(now - 10000)
 
 	active := &UDPSessionObj{Conn: activeConn}
-	active.LastActivity.Store(now + 60)
+	active.LastActivity.Store(now + 60000)
 
 	sessions := NewUDPSessionMap()
 	sessions.Store("expired", expired)

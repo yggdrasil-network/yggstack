@@ -10,6 +10,8 @@ import (
 
 // GetPeers returns a snapshot of all configured peers.
 func (o *Obj) GetPeers() []peers.InfoObj {
+	o.componentsMu.RLock()
+	defer o.componentsMu.RUnlock()
 	if o.Core == nil {
 		return []peers.InfoObj{}
 	}
@@ -18,6 +20,8 @@ func (o *Obj) GetPeers() []peers.InfoObj {
 
 // GetPeersJSON returns peer statistics in JSON format.
 func (o *Obj) GetPeersJSON() ([]byte, error) {
+	o.componentsMu.RLock()
+	defer o.componentsMu.RUnlock()
 	if o.Core == nil {
 		return nil, fmt.Errorf("node is not running")
 	}
@@ -26,6 +30,8 @@ func (o *Obj) GetPeersJSON() ([]byte, error) {
 
 // AddPeer adds a persistent peer at runtime.
 func (o *Obj) AddPeer(uri string) error {
+	o.componentsMu.RLock()
+	defer o.componentsMu.RUnlock()
 	if o.Core == nil {
 		return fmt.Errorf("node is not running")
 	}
@@ -34,6 +40,8 @@ func (o *Obj) AddPeer(uri string) error {
 
 // RemovePeer removes a persistent peer at runtime.
 func (o *Obj) RemovePeer(uri string) error {
+	o.componentsMu.RLock()
+	defer o.componentsMu.RUnlock()
 	if o.Core == nil {
 		return fmt.Errorf("node is not running")
 	}
@@ -42,6 +50,8 @@ func (o *Obj) RemovePeer(uri string) error {
 
 // RetryPeersNow forces an immediate reconnection attempt to all disconnected peers.
 func (o *Obj) RetryPeersNow() {
+	o.componentsMu.RLock()
+	defer o.componentsMu.RUnlock()
 	if o.Core == nil {
 		return
 	}

@@ -92,6 +92,7 @@ func runUDPLoop(
 				return
 			}
 			log.Debugf("UDP read error: %v", err)
+			continue
 		}
 		if n == 0 {
 			continue
@@ -119,12 +120,12 @@ func runUDPLoop(
 				cb.OnConnectionCreated(session.ConnId, "udp")
 				counter.Increment()
 			}
-			session.LastActivity.Store(time.Now().Unix())
+			session.LastActivity.Store(time.Now().UnixMilli())
 			connections.Store(key, session)
 			go types.ReverseProxyUDP(sessCtx, mtu, listenConn, remoteAddr, fwdConn)
 		}
 
-		session.LastActivity.Store(time.Now().Unix())
+		session.LastActivity.Store(time.Now().UnixMilli())
 		if _, err = session.Conn.Write(buf[:n]); err != nil {
 			log.Debugf("Session write error: %s", err)
 			CloseUDPSession(session, log)
@@ -165,9 +166,9 @@ func CleanupUDPSessions(ctx context.Context, connections *UDPSessionMapObj, time
 			})
 			return
 		case <-ticker.C:
-			now := time.Now().Unix()
+			now := time.Now().UnixMilli()
 			connections.Range(func(key string, session *UDPSessionObj) bool {
-				if now-session.LastActivity.Load() > int64(timeout.Seconds()) {
+				if now-session.LastActivity.Load() > timeout.Milliseconds() {
 					logger.Debugf("Cleaning up inactive UDP session %s", key)
 					CloseUDPSession(session, logger)
 					connections.Delete(key)

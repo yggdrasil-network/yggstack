@@ -105,7 +105,7 @@ func StartSocks(node NodeInterface, cfg SocksConfigObj, readyCh chan struct{}) (
 		result.Listener, err = net.Listen("unix", cfg.Addr)
 		if err != nil {
 			if isErrorAddressAlreadyInUse(err) {
-				_, dialErr := net.Dial("unix", cfg.Addr)
+				probeConn, dialErr := net.Dial("unix", cfg.Addr)
 				if dialErr != nil {
 					if rmErr := removeUnixSocket(cfg.Addr); rmErr != nil {
 						return nil, rmErr
@@ -115,6 +115,7 @@ func StartSocks(node NodeInterface, cfg SocksConfigObj, readyCh chan struct{}) (
 						return nil, fmt.Errorf("net.Listen unix %s: %w", cfg.Addr, err)
 					}
 				} else {
+					_ = probeConn.Close()
 					return nil, fmt.Errorf("another instance is listening on socket '%s'", cfg.Addr)
 				}
 			} else {

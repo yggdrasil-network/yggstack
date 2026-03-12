@@ -101,11 +101,7 @@ func New(cfg ConfigObj) (_ *Obj, retErr error) {
 	// Low Power Mode
 	if cfg.LowPower != nil && cfg.ActivityCallback != nil {
 		lpmCfg := *cfg.LowPower
-		if lpmCfg.IdleTimeout == 0 {
-			lpmCfg.IdleTimeout = 60 * time.Second
-		}
-		lpmCtx, lpmCancel := context.WithCancel(ctx)
-		obj.lowPower = lowpower.NewManager(obj.nodeControl, lpmCfg, lpmCtx, lpmCancel, log)
+		obj.lowPower = lowpower.NewManager(obj.nodeControl, lpmCfg, ctx, log)
 		cfgCopy := cfg
 		cfgCopy.Ctx = nil
 		obj.lowPower.SetOrigConfig(cfgCopy)
@@ -139,18 +135,36 @@ func (o *Obj) Close() error {
 }
 
 // Address returns the node's Yggdrasil IPv6 address (200::/7 range).
+// Returns nil if the node is stopped or in low-power mode.
 func (o *Obj) Address() net.IP {
+	o.componentsMu.RLock()
+	defer o.componentsMu.RUnlock()
+	if o.Core == nil {
+		return nil
+	}
 	addr := o.Core.Address()
 	return net.IP(addr[:])
 }
 
 // Subnet returns the node's Yggdrasil /64 routed subnet (300::/7 range).
+// Returns empty IPNet if the node is stopped or in low-power mode.
 func (o *Obj) Subnet() net.IPNet {
+	o.componentsMu.RLock()
+	defer o.componentsMu.RUnlock()
+	if o.Core == nil {
+		return net.IPNet{}
+	}
 	return o.Core.Subnet()
 }
 
 // PublicKey returns the node's ed25519 public key (32 bytes).
+// Returns nil if the node is stopped or in low-power mode.
 func (o *Obj) PublicKey() ed25519.PublicKey {
+	o.componentsMu.RLock()
+	defer o.componentsMu.RUnlock()
+	if o.Core == nil {
+		return nil
+	}
 	return o.Core.PublicKey()
 }
 

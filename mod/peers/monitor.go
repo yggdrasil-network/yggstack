@@ -2,6 +2,7 @@ package peers
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/yggdrasil-network/yggstack/mod/activity"
@@ -23,12 +24,13 @@ type MonitorObj struct {
 	connCounter *activity.CounterObj
 	ctx         context.Context
 	cancel      context.CancelFunc
-	lastConn    int64
-	lastTotal   int64
+	lastConn    atomic.Int64
+	lastTotal   atomic.Int64
 }
 
 // NewMonitor creates a new peer monitor.
-func NewMonitor(core CoreInterface, callback ChangeCallbackInterface, connCounter *activity.CounterObj, ctx context.Context, cancel context.CancelFunc) *MonitorObj {
+func NewMonitor(core CoreInterface, callback ChangeCallbackInterface, connCounter *activity.CounterObj, ctx context.Context) *MonitorObj {
+	ctx, cancel := context.WithCancel(ctx)
 	return &MonitorObj{
 		core:        core,
 		callback:    callback,
@@ -78,9 +80,9 @@ func (m *MonitorObj) Poll() {
 			connected++
 		}
 	}
-	if connected != m.lastConn || total != m.lastTotal {
-		m.lastConn = connected
-		m.lastTotal = total
+	if connected != m.lastConn.Load() || total != m.lastTotal.Load() {
+		m.lastConn.Store(connected)
+		m.lastTotal.Store(total)
 		m.callback.OnPeerCountChanged(connected, total)
 	}
 }

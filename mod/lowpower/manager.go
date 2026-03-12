@@ -33,9 +33,15 @@ type ManagerObj struct {
 	lastActivityAt atomic.Int64 // Unix timestamp of last activity
 }
 
+const defaultIdleTimeout = 60 * time.Second
+
 // //
 
-func NewManager(node NodeControlInterface, cfg ConfigObj, ctx context.Context, cancel context.CancelFunc, logger core.Logger) *ManagerObj {
+func NewManager(node NodeControlInterface, cfg ConfigObj, ctx context.Context, logger core.Logger) *ManagerObj {
+	if cfg.IdleTimeout <= 0 {
+		cfg.IdleTimeout = defaultIdleTimeout
+	}
+	ctx, cancel := context.WithCancel(ctx)
 	m := &ManagerObj{
 		node:             node,
 		cfg:              cfg,
@@ -116,7 +122,17 @@ func (m *ManagerObj) transitionToLowPower() {
 
 	// Wake trigger on SOCKS port: wake the node when a client connects.
 	if socksAddr != "" {
-		m.startWakeTrigger(socksAddr)
+		if err := m.startWakeTrigger(socksAddr); err != nil {
+			m.logger.Errorf("Low power mode: %s — restarting components", err)
+			if startErr := m.node.StartComponents(m.getOrigCfg()); startErr != nil {
+				m.logger.Errorf("Low power mode: failed to restart after wake trigger failure: %s", startErr)
+				m.state.Store(StateLowPower)
+				return
+			}
+			m.touchActivity()
+			m.state.Store(StateFullPower)
+			return
+		}
 	}
 
 	m.state.Store(StateLowPower)
@@ -135,6 +151,12 @@ func (m *ManagerObj) doTransitionToFullPower() {
 
 	if err := m.node.StartComponents(m.getOrigCfg()); err != nil {
 		m.logger.Errorf("Low power mode: failed to restart components: %s", err)
+		// Re-enable wake trigger so a future connection can retry
+		if socksAddr := m.node.SocksAddr(); socksAddr != "" {
+			if triggerErr := m.startWakeTrigger(socksAddr); triggerErr != nil {
+				m.logger.Errorf("Low power mode: failed to re-enable wake trigger: %s", triggerErr)
+			}
+		}
 		m.state.Store(StateLowPower)
 		return
 	}

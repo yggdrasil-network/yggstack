@@ -7,31 +7,31 @@ import (
 	"strings"
 )
 
-func parseMappingString(value string) (first_address string, first_port int, second_address string, second_port int, err error) {
-	var first_port_string string = ""
-	var second_port_string string = ""
+func parseMappingString(value string) (firstAddress string, firstPort int, secondAddress string, secondPort int, err error) {
+	var firstPortStr string = ""
+	var secondPortStr string = ""
 
 	tokens := strings.Split(value, ":")
-	tokens_len := len(tokens)
+	tokensLen := len(tokens)
 
 	// If token count is 1, then it is first and second port the same
 
-	if tokens_len == 1 {
-		first_port, err = strconv.Atoi(tokens[0])
+	if tokensLen == 1 {
+		firstPort, err = strconv.Atoi(tokens[0])
 		if err != nil {
 			return "", 0, "", 0, fmt.Errorf("Malformed mapping spec '%s'", value)
 		}
-		second_port = first_port
+		secondPort = firstPort
 	}
 
 	// If token count is 2, then it is <first-port>:<second-port>
 
-	if tokens_len == 2 {
-		first_port, err = strconv.Atoi(tokens[0])
+	if tokensLen == 2 {
+		firstPort, err = strconv.Atoi(tokens[0])
 		if err != nil {
 			return "", 0, "", 0, fmt.Errorf("Malformed mapping spec '%s'", value)
 		}
-		second_port, err = strconv.Atoi(tokens[1])
+		secondPort, err = strconv.Atoi(tokens[1])
 		if err != nil {
 			return "", 0, "", 0, fmt.Errorf("Malformed mapping spec '%s'", value)
 		}
@@ -40,17 +40,17 @@ func parseMappingString(value string) (first_address string, first_port int, sec
 	// If token count is 3, parse it as
 	// <first-port>:<second-address>:<second-port>
 
-	if tokens_len == 3 {
-		first_port, err = strconv.Atoi(tokens[0])
+	if tokensLen == 3 {
+		firstPort, err = strconv.Atoi(tokens[0])
 		if err != nil {
 			return "", 0, "", 0, fmt.Errorf("Malformed mapping spec '%s'", value)
 		}
-		second_address, second_port_string, err = net.SplitHostPort(
+		secondAddress, secondPortStr, err = net.SplitHostPort(
 			tokens[1] + ":" + tokens[2])
 		if err != nil {
 			return "", 0, "", 0, fmt.Errorf("Malformed mapping spec '%s'", value)
 		}
-		second_port, err = strconv.Atoi(second_port_string)
+		secondPort, err = strconv.Atoi(secondPortStr)
 		if err != nil {
 			return "", 0, "", 0, fmt.Errorf("Malformed mapping spec '%s'", value)
 		}
@@ -59,50 +59,50 @@ func parseMappingString(value string) (first_address string, first_port int, sec
 	// If token count is 4, parse it as
 	// <first-address>:<first-port>:<second-address>:<second-port>
 
-	if tokens_len == 4 {
-		first_address, first_port_string, err = net.SplitHostPort(
+	if tokensLen == 4 {
+		firstAddress, firstPortStr, err = net.SplitHostPort(
 			tokens[0] + ":" + tokens[1])
 		if err != nil {
 			return "", 0, "", 0, fmt.Errorf("Malformed mapping spec '%s'", value)
 		}
-		second_address, second_port_string, err = net.SplitHostPort(
+		secondAddress, secondPortStr, err = net.SplitHostPort(
 			tokens[2] + ":" + tokens[3])
 		if err != nil {
 			return "", 0, "", 0, fmt.Errorf("Malformed mapping spec '%s'", value)
 		}
-		first_port, err = strconv.Atoi(first_port_string)
+		firstPort, err = strconv.Atoi(firstPortStr)
 		if err != nil {
 			return "", 0, "", 0, fmt.Errorf("Malformed mapping spec '%s'", value)
 		}
-		second_port, err = strconv.Atoi(second_port_string)
+		secondPort, err = strconv.Atoi(secondPortStr)
 		if err != nil {
 			return "", 0, "", 0, fmt.Errorf("Malformed mapping spec '%s'", value)
 		}
 	}
 
-	if tokens_len > 4 {
-		// Last token needs to be the second_port
+	if tokensLen > 4 {
+		// Last token needs to be the secondPort
 
-		second_port, err = strconv.Atoi(tokens[tokens_len-1])
+		secondPort, err = strconv.Atoi(tokens[tokensLen-1])
 		if err != nil {
 			return "", 0, "", 0, fmt.Errorf("Malformed mapping spec '%s'", value)
 		}
 
 		// Cut seen tokens
 
-		tokens = tokens[:tokens_len-1]
-		tokens_len = len(tokens)
+		tokens = tokens[:tokensLen-1]
+		tokensLen = len(tokens)
 
-		if strings.HasSuffix(tokens[tokens_len-1], "]") {
+		if strings.HasSuffix(tokens[tokensLen-1], "]") {
 			// Reverse-walk over tokens to find the end of
 			// numeric ipv6 address
 
-			for i := tokens_len - 1; i >= 0; i-- {
+			for i := tokensLen - 1; i >= 0; i-- {
 				if strings.HasPrefix(tokens[i], "[") {
 					// Store second address
-					second_address = strings.Join(tokens[i:], ":")
-					second_address, _ = strings.CutPrefix(second_address, "[")
-					second_address, _ = strings.CutSuffix(second_address, "]")
+					secondAddress = strings.Join(tokens[i:], ":")
+					secondAddress, _ = strings.CutPrefix(secondAddress, "[")
+					secondAddress, _ = strings.CutSuffix(secondAddress, "]")
 					// Cut seen tokens
 					tokens = tokens[:i]
 					// break from loop
@@ -111,55 +111,55 @@ func parseMappingString(value string) (first_address string, first_port int, sec
 			}
 		} else {
 			// next is second address in non-numerical-ipv6 form
-			second_address = tokens[tokens_len-1]
-			tokens = tokens[:tokens_len-1]
+			secondAddress = tokens[tokensLen-1]
+			tokens = tokens[:tokensLen-1]
 		}
 
-		tokens_len = len(tokens)
+		tokensLen = len(tokens)
 
-		if tokens_len < 1 {
+		if tokensLen < 1 {
 			return "", 0, "", 0, fmt.Errorf("Malformed mapping spec '%s'", value)
 		}
 
-		// Last token needs to be the first_port
+		// Last token needs to be the firstPort
 
-		first_port, err = strconv.Atoi(tokens[tokens_len-1])
+		firstPort, err = strconv.Atoi(tokens[tokensLen-1])
 		if err != nil {
 			return "", 0, "", 0, fmt.Errorf("Malformed mapping spec '%s'", value)
 		}
 
 		// Cut seen tokens
 
-		tokens = tokens[:tokens_len-1]
-		tokens_len = len(tokens)
+		tokens = tokens[:tokensLen-1]
+		tokensLen = len(tokens)
 
-		if tokens_len > 0 {
-			if strings.HasSuffix(tokens[tokens_len-1], "]") {
+		if tokensLen > 0 {
+			if strings.HasSuffix(tokens[tokensLen-1], "]") {
 				// Reverse-walk over tokens to find the end of
 				// numeric ipv6 address
 
-				for i := tokens_len - 1; i >= 0; i-- {
+				for i := tokensLen - 1; i >= 0; i-- {
 					if strings.HasPrefix(tokens[i], "[") {
 						// Store first address
-						first_address = strings.Join(tokens[i:], ":")
-						first_address, _ = strings.CutPrefix(first_address, "[")
-						first_address, _ = strings.CutSuffix(first_address, "]")
+						firstAddress = strings.Join(tokens[i:], ":")
+						firstAddress, _ = strings.CutPrefix(firstAddress, "[")
+						firstAddress, _ = strings.CutSuffix(firstAddress, "]")
 						// break from loop
 						break
 					}
 				}
 			} else {
 				// next is first address in non-numerical-ipv6 form
-				first_address = tokens[tokens_len-1]
+				firstAddress = tokens[tokensLen-1]
 			}
 		}
 	}
 
-	if first_port < 1 || first_port > 65535 || second_port < 1 || second_port > 65535 {
+	if firstPort < 1 || firstPort > 65535 || secondPort < 1 || secondPort > 65535 {
 		return "", 0, "", 0, fmt.Errorf("ports must be in range 1-65535")
 	}
 
-	return first_address, first_port, second_address, second_port, nil
+	return firstAddress, firstPort, secondAddress, secondPort, nil
 }
 
 // Validate addresses and ports after parsing the mapping string
