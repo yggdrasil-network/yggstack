@@ -6,7 +6,7 @@ require (
 	github.com/gologme/log v1.3.0
 	github.com/hashicorp/go-syslog v1.0.0
 	github.com/hjson/hjson-go/v4 v4.6.0
-	github.com/things-go/go-socks5 v0.0.5
+	github.com/things-go/go-socks5 v0.1.0
 	github.com/yggdrasil-network/yggdrasil-go v0.5.13
 	gvisor.dev/gvisor v0.0.0-20240810013311-326fe0f2a77f
 )
