@@ -42,9 +42,9 @@ type Obj struct {
 	Netstack *netstack.YggdrasilNetstack
 
 	ctx              context.Context
-	netstackPtr  atomic.Pointer[netstack.YggdrasilNetstack]
+	netstackPtr      atomic.Pointer[netstack.YggdrasilNetstack]
 	socksListener    net.Listener
-	socksReadyCh chan struct{} // closed when SOCKS listener is ready after wake
+	socksReadyCh     chan struct{} // closed when SOCKS listener is ready after wake
 	socksAddr        string
 	socksIsUnix      bool
 	coreStopTimeout  time.Duration

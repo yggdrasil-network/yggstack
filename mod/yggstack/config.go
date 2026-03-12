@@ -55,33 +55,8 @@ type ConfigObj struct {
 	// Only used when SocksAddr is set.
 	SocksVerbose bool
 
-	// LocalTCP forwards a local TCP port to a remote Yggdrasil address (like ssh -L).
-	// Each entry maps Listen (local host:port) -> Mapped (remote Yggdrasil IPv6:port).
-	// Example: listen 127.0.0.1:8080 -> forward to [ygg-ipv6]:8080.
-	// CLI equivalent: -local-tcp 127.0.0.1:8080:<remote-yggdrasil-ipv6>:8080
-	LocalTCP []types.TCPMapping
-
-	// LocalUDP forwards a local UDP port to a remote Yggdrasil address (like ssh -L for UDP).
-	// Each entry maps Listen (local host:port) -> Mapped (remote Yggdrasil IPv6:port).
-	// Example: listen 127.0.0.1:5353 -> forward to [ygg-ipv6]:53.
-	// CLI equivalent: -local-udp 127.0.0.1:5353:<remote-yggdrasil-ipv6>:53
-	LocalUDP []types.UDPMapping
-
-	// RemoteTCP exposes a local TCP service to the Yggdrasil network (like ssh -R).
-	// Each entry maps Listen (Yggdrasil-side port) -> Mapped (local host:port).
-	// Listen address is always the node's own Yggdrasil IPv6; only the port is specified.
-	// Mapped defaults to [::1] (IPv6 loopback) if address is omitted.
-	// Example: ygg-port 80 -> forward to 127.0.0.1:8080.
-	// CLI equivalent: -remote-tcp 80:127.0.0.1:8080
-	RemoteTCP []types.TCPMapping
-
-	// RemoteUDP exposes a local UDP service to the Yggdrasil network (like ssh -R for UDP).
-	// Each entry maps Listen (Yggdrasil-side port) -> Mapped (local host:port).
-	// Listen address is always the node's own Yggdrasil IPv6; only the port is specified.
-	// Mapped defaults to [::1] (IPv6 loopback) if address is omitted.
-	// Example: ygg-port 53 -> forward to 127.0.0.1:53.
-	// CLI equivalent: -remote-udp 53:127.0.0.1:53
-	RemoteUDP []types.UDPMapping
+	// Mapping holds all port forwarding rules (local and remote, TCP and UDP).
+	Mapping MappingConfigObj
 
 	// UDPSessionTimeout is the inactivity timeout for UDP forwarding sessions.
 	// After this duration without traffic, the session is closed and resources are freed.
@@ -110,6 +85,37 @@ type ConfigObj struct {
 }
 
 // //
+
+// MappingConfigObj holds all port forwarding rules.
+type MappingConfigObj struct {
+	// LocalTCP forwards a local TCP port to a remote Yggdrasil address (like ssh -L).
+	// Each entry maps Listen (local host:port) -> Mapped (remote Yggdrasil IPv6:port).
+	// Example: listen 127.0.0.1:8080 -> forward to [ygg-ipv6]:8080.
+	// CLI equivalent: -local-tcp 127.0.0.1:8080:<remote-yggdrasil-ipv6>:8080
+	LocalTCP []types.TCPMapping
+
+	// LocalUDP forwards a local UDP port to a remote Yggdrasil address (like ssh -L for UDP).
+	// Each entry maps Listen (local host:port) -> Mapped (remote Yggdrasil IPv6:port).
+	// Example: listen 127.0.0.1:5353 -> forward to [ygg-ipv6]:53.
+	// CLI equivalent: -local-udp 127.0.0.1:5353:<remote-yggdrasil-ipv6>:53
+	LocalUDP []types.UDPMapping
+
+	// RemoteTCP exposes a local TCP service to the Yggdrasil network (like ssh -R).
+	// Each entry maps Listen (Yggdrasil-side port) -> Mapped (local host:port).
+	// Listen address is always the node's own Yggdrasil IPv6; only the port is specified.
+	// Mapped defaults to [::1] (IPv6 loopback) if address is omitted.
+	// Example: ygg-port 80 -> forward to 127.0.0.1:8080.
+	// CLI equivalent: -remote-tcp 80:127.0.0.1:8080
+	RemoteTCP []types.TCPMapping
+
+	// RemoteUDP exposes a local UDP service to the Yggdrasil network (like ssh -R for UDP).
+	// Each entry maps Listen (Yggdrasil-side port) -> Mapped (local host:port).
+	// Listen address is always the node's own Yggdrasil IPv6; only the port is specified.
+	// Mapped defaults to [::1] (IPv6 loopback) if address is omitted.
+	// Example: ygg-port 53 -> forward to 127.0.0.1:53.
+	// CLI equivalent: -remote-udp 53:127.0.0.1:53
+	RemoteUDP []types.UDPMapping
+}
 
 // LowPowerConfigObj holds low power mode parameters.
 type LowPowerConfigObj struct {

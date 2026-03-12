@@ -383,10 +383,10 @@ func (o *Obj) initNetworking(cfg ConfigObj, log core.Logger) error {
 	}
 
 	// Port forwarding
-	o.startLocalTCP(cfg.LocalTCP)
-	o.startLocalUDP(cfg.LocalUDP, cfg.UDPSessionTimeout)
-	o.startRemoteTCP(cfg.RemoteTCP)
-	o.startRemoteUDP(cfg.RemoteUDP, cfg.UDPSessionTimeout)
+	o.startLocalTCP(cfg.Mapping.LocalTCP)
+	o.startLocalUDP(cfg.Mapping.LocalUDP, cfg.UDPSessionTimeout)
+	o.startRemoteTCP(cfg.Mapping.RemoteTCP)
+	o.startRemoteUDP(cfg.Mapping.RemoteUDP, cfg.UDPSessionTimeout)
 
 	return nil
 }

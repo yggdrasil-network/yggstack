@@ -162,6 +162,47 @@ func parseMappingString(value string) (first_address string, first_port int, sec
 	return first_address, first_port, second_address, second_port, nil
 }
 
+// Validate addresses and ports after parsing the mapping string
+func buildMapping(value string, isLocal bool) (listenIP net.IP, listenPort int, mappedIP net.IP, mappedPort int, err error) {
+	firstAddr, firstPort, secondAddr, secondPort, err := parseMappingString(value)
+	if err != nil {
+		return nil, 0, nil, 0, err
+	}
+
+	if isLocal {
+		if !strings.Contains(secondAddr, ":") {
+			return nil, 0, nil, 0, fmt.Errorf("Yggdrasil listening address can be only IPv6")
+		}
+	} else {
+		if firstAddr != "" {
+			return nil, 0, nil, 0, fmt.Errorf("Yggdrasil listening must be empty")
+		}
+	}
+
+	//
+
+	mappedIP = net.IPv6loopback
+
+	if firstAddr != "" {
+		listenIP = net.ParseIP(firstAddr)
+		if listenIP == nil {
+			return nil, 0, nil, 0, fmt.Errorf("invalid listen address %q", firstAddr)
+		}
+	}
+
+	if secondAddr != "" {
+		// TODO: Filter Yggdrasil IPs here (for Local mappings)
+		mappedIP = net.ParseIP(secondAddr)
+		if mappedIP == nil {
+			return nil, 0, nil, 0, fmt.Errorf("invalid mapped address %q", secondAddr)
+		}
+	}
+
+	return listenIP, firstPort, mappedIP, secondPort, nil
+}
+
+// // // // //
+
 type TCPMapping struct {
 	Listen *net.TCPAddr
 	Mapped *net.TCPAddr
@@ -169,111 +210,39 @@ type TCPMapping struct {
 
 type TCPLocalMappings []TCPMapping
 
-func (m *TCPLocalMappings) String() string {
-	return ""
-}
+func (m *TCPLocalMappings) String() string { return "" }
 
 func (m *TCPLocalMappings) Set(value string) error {
-	first_address, first_port, second_address, second_port, err :=
-		parseMappingString(value)
-
+	listenIP, listenPort, mappedIP, mappedPort, err := buildMapping(value, true)
 	if err != nil {
 		return err
 	}
-
-	// First address can be ipv4/ipv6
-	// Second address can be only Yggdrasil ipv6
-
-	if !strings.Contains(second_address, ":") {
-		return fmt.Errorf("Yggdrasil listening address can be only IPv6")
-	}
-
-	// Create mapping
-
-	mapping := TCPMapping{
-		Listen: &net.TCPAddr{
-			Port: first_port,
-		},
-		Mapped: &net.TCPAddr{
-			IP:   net.IPv6loopback,
-			Port: second_port,
-		},
-	}
-
-	if first_address != "" {
-		listenaddr := net.ParseIP(first_address)
-		if listenaddr == nil {
-			return fmt.Errorf("invalid listen address %q", first_address)
-		}
-		mapping.Listen.IP = listenaddr
-	}
-
-	if second_address != "" {
-		mappedaddr := net.ParseIP(second_address)
-		if mappedaddr == nil {
-			return fmt.Errorf("invalid mapped address %q", second_address)
-		}
-		// TODO: Filter Yggdrasil IPs here
-		mapping.Mapped.IP = mappedaddr
-	}
-
-	*m = append(*m, mapping)
+	*m = append(*m, TCPMapping{
+		Listen: &net.TCPAddr{IP: listenIP, Port: listenPort},
+		Mapped: &net.TCPAddr{IP: mappedIP, Port: mappedPort},
+	})
 	return nil
 }
+
+// //
 
 type TCPRemoteMappings []TCPMapping
 
-func (m *TCPRemoteMappings) String() string {
-	return ""
-}
+func (m *TCPRemoteMappings) String() string { return "" }
 
 func (m *TCPRemoteMappings) Set(value string) error {
-	first_address, first_port, second_address, second_port, err :=
-		parseMappingString(value)
-
+	listenIP, listenPort, mappedIP, mappedPort, err := buildMapping(value, false)
 	if err != nil {
 		return err
 	}
-
-	// First address must be empty
-	// Second address can be ipv4/ipv6
-
-	if first_address != "" {
-		return fmt.Errorf("Yggdrasil listening must be empty")
-	}
-
-	// Create mapping
-
-	mapping := TCPMapping{
-		Listen: &net.TCPAddr{
-			Port: first_port,
-		},
-		Mapped: &net.TCPAddr{
-			IP:   net.IPv6loopback,
-			Port: second_port,
-		},
-	}
-
-	// NOTE: Dead branch — first_address is guaranteed empty here (non-empty case returns error on line 241-243)
-	if first_address != "" {
-		listenaddr := net.ParseIP(first_address)
-		if listenaddr == nil {
-			return fmt.Errorf("invalid listen address %q", first_address)
-		}
-		mapping.Listen.IP = listenaddr
-	}
-
-	if second_address != "" {
-		mappedaddr := net.ParseIP(second_address)
-		if mappedaddr == nil {
-			return fmt.Errorf("invalid mapped address %q", second_address)
-		}
-		mapping.Mapped.IP = mappedaddr
-	}
-
-	*m = append(*m, mapping)
+	*m = append(*m, TCPMapping{
+		Listen: &net.TCPAddr{IP: listenIP, Port: listenPort},
+		Mapped: &net.TCPAddr{IP: mappedIP, Port: mappedPort},
+	})
 	return nil
 }
+
+// // // // //
 
 type UDPMapping struct {
 	Listen *net.UDPAddr
@@ -282,108 +251,34 @@ type UDPMapping struct {
 
 type UDPLocalMappings []UDPMapping
 
-func (m *UDPLocalMappings) String() string {
-	return ""
-}
+func (m *UDPLocalMappings) String() string { return "" }
 
 func (m *UDPLocalMappings) Set(value string) error {
-	first_address, first_port, second_address, second_port, err :=
-		parseMappingString(value)
-
+	listenIP, listenPort, mappedIP, mappedPort, err := buildMapping(value, true)
 	if err != nil {
 		return err
 	}
-
-	// First address can be ipv4/ipv6
-	// Second address can be only Yggdrasil ipv6
-
-	if !strings.Contains(second_address, ":") {
-		return fmt.Errorf("Yggdrasil listening address can be only IPv6")
-	}
-
-	// Create mapping
-
-	mapping := UDPMapping{
-		Listen: &net.UDPAddr{
-			Port: first_port,
-		},
-		Mapped: &net.UDPAddr{
-			IP:   net.IPv6loopback,
-			Port: second_port,
-		},
-	}
-
-	if first_address != "" {
-		listenaddr := net.ParseIP(first_address)
-		if listenaddr == nil {
-			return fmt.Errorf("invalid listen address %q", first_address)
-		}
-		mapping.Listen.IP = listenaddr
-	}
-
-	if second_address != "" {
-		mappedaddr := net.ParseIP(second_address)
-		if mappedaddr == nil {
-			return fmt.Errorf("invalid mapped address %q", second_address)
-		}
-		// TODO: Filter Yggdrasil IPs here
-		mapping.Mapped.IP = mappedaddr
-	}
-
-	*m = append(*m, mapping)
+	*m = append(*m, UDPMapping{
+		Listen: &net.UDPAddr{IP: listenIP, Port: listenPort},
+		Mapped: &net.UDPAddr{IP: mappedIP, Port: mappedPort},
+	})
 	return nil
 }
 
+// //
+
 type UDPRemoteMappings []UDPMapping
 
-func (m *UDPRemoteMappings) String() string {
-	return ""
-}
+func (m *UDPRemoteMappings) String() string { return "" }
 
 func (m *UDPRemoteMappings) Set(value string) error {
-	first_address, first_port, second_address, second_port, err :=
-		parseMappingString(value)
-
+	listenIP, listenPort, mappedIP, mappedPort, err := buildMapping(value, false)
 	if err != nil {
 		return err
 	}
-
-	// First address must be empty
-	// Second address can be ipv4/ipv6
-
-	if first_address != "" {
-		return fmt.Errorf("Yggdrasil listening must be empty")
-	}
-
-	// Create mapping
-
-	mapping := UDPMapping{
-		Listen: &net.UDPAddr{
-			Port: first_port,
-		},
-		Mapped: &net.UDPAddr{
-			IP:   net.IPv6loopback,
-			Port: second_port,
-		},
-	}
-
-	// NOTE: Dead branch — first_address is guaranteed empty here (non-empty case returns error on line 353-355)
-	if first_address != "" {
-		listenaddr := net.ParseIP(first_address)
-		if listenaddr == nil {
-			return fmt.Errorf("invalid listen address %q", first_address)
-		}
-		mapping.Listen.IP = listenaddr
-	}
-
-	if second_address != "" {
-		mappedaddr := net.ParseIP(second_address)
-		if mappedaddr == nil {
-			return fmt.Errorf("invalid mapped address %q", second_address)
-		}
-		mapping.Mapped.IP = mappedaddr
-	}
-
-	*m = append(*m, mapping)
+	*m = append(*m, UDPMapping{
+		Listen: &net.UDPAddr{IP: listenIP, Port: listenPort},
+		Mapped: &net.UDPAddr{IP: mappedIP, Port: mappedPort},
+	})
 	return nil
 }

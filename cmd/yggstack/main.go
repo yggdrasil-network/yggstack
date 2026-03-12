@@ -192,10 +192,12 @@ func main() {
 		SocksAddr:       *socks,
 		SocksVerbose:    logger.GetLevel("debug"),
 		Nameserver:      *nameserver,
-		LocalTCP:        localtcp,
-		LocalUDP:        localudp,
-		RemoteTCP:       remotetcp,
-		RemoteUDP:       remoteudp,
+		Mapping: yggstack.MappingConfigObj{
+			LocalTCP:  localtcp,
+			LocalUDP:  localudp,
+			RemoteTCP: remotetcp,
+			RemoteUDP: remoteudp,
+		},
 	})
 	if err != nil {
 		panic(err)
