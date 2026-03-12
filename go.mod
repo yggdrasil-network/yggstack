@@ -8,7 +8,7 @@ require (
 	github.com/hjson/hjson-go/v4 v4.6.0
 	github.com/things-go/go-socks5 v0.1.0
 	github.com/yggdrasil-network/yggdrasil-go v0.5.13
-	gvisor.dev/gvisor v0.0.0-20240810013311-326fe0f2a77f
+	gvisor.dev/gvisor v0.0.0-20250812171554-968e93457fe6
 )
 
 require (
