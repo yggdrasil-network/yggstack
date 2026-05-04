@@ -39,11 +39,11 @@ jobs:
 
       - name: Check if commit needs a release upload
         run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "RELEASENAME=${{ github.ref_name }}" >> "$GITHUB_ENV"
-          elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/develop" ]; then
-            echo "PRERELEASE=--prerelease" >> "$GITHUB_ENV"
-            echo "RELEASENAME=trunk" >> "$GITHUB_ENV"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "RELEASENAME=${GITHUB_REF_NAME}" >> "${GITHUB_ENV}"
+          elif [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/develop" ]; then
+            echo "PRERELEASE=--prerelease" >> "${GITHUB_ENV}"
+            echo "RELEASENAME=trunk" >> "${GITHUB_ENV}"
           else
             echo "Not a tag or push to develop branch, skipping upload"
             echo "SKIP_UPLOAD=1" >> "$GITHUB_ENV"
@@ -237,7 +237,7 @@ jobs:
       - name: Publish release
         if: ${{ env.SKIP_UPLOAD == '' }}
         run: |
-          gh release create "${{ env.RELEASENAME }}" ${{ env.PRERELEASE }} yggstack-* || gh release upload "${{ env.RELEASENAME }}" yggstack-* --clobber
+          gh release create "${RELEASENAME}" ${PRERELEASE} yggstack-* || gh release upload "${RELEASENAME}" yggstack-* --clobber
         env:
           GH_TOKEN: ${{ github.token }}
 
