@@ -22,6 +22,7 @@ type YggdrasilNIC struct {
 	readBuf    []byte
 	writeBuf   []byte
 	rstPackets chan *stack.PacketBuffer
+	packetQueue chan []byte
 }
 
 func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) tcpip.Error {
@@ -32,6 +33,7 @@ func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) tcpip.Error {
 		readBuf:    make([]byte, mtu),
 		writeBuf:   make([]byte, mtu),
 		rstPackets: make(chan *stack.PacketBuffer, 100),
+		packetQueue: make(chan []byte, 1000),
 	}
 	if err := s.stack.CreateNIC(1, nic); err != nil {
 		return err
@@ -45,8 +47,21 @@ func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) tcpip.Error {
 				log.Println(err)
 				break
 			}
+
+			packet := make([]byte, rx)
+			copy(packet, nic.readBuf[:rx])
+
+			select {
+			case nic.packetQueue <- packet:
+			default:
+				log.Println("Packet queue full, dropping packet")
+			}
+		}
+	}()
+	go func() {
+		for packet := range nic.packetQueue {
 			pkb := stack.NewPacketBuffer(stack.PacketBufferOptions{
-				Payload: buffer.MakeWithData(nic.readBuf[:rx]),
+				Payload: buffer.MakeWithData(packet),
 			})
 			nic.dispatcher.DeliverNetworkPacket(ipv6.ProtocolNumber, pkb)
 			pkb.DecRef()
