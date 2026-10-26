@@ -35,7 +35,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.25'
+          go-version: '1.26'
 
       - name: Check if commit needs a release upload
         run: |
@@ -58,10 +58,6 @@ jobs:
           #
           echo "::group::yggstack-windows-arm64.exe"
           GOOS=windows GOARCH=arm64 ./build -o yggstack-windows-arm64.exe
-          echo "::endgroup::"
-          #
-          echo "::group::yggstack-windows-armv7.exe"
-          GOOS=windows GOARCH=arm GOARM=7 ./build -o yggstack-windows-armv7.exe
           echo "::endgroup::"
           #
           echo "::group::yggstack-windows-i386.exe"
