@@ -31,8 +31,7 @@ import (
 
 	"github.com/yggdrasil-network/yggstack/src/netstack"
 	"github.com/yggdrasil-network/yggstack/src/types"
-
-	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
+	"github.com/yggdrasil-network/yggstack/src/udpforward"
 )
 
 type node struct {
@@ -382,62 +381,21 @@ func main() {
 	// to remote Yggdrasil node)
 	{
 		for _, mapping := range localudp {
-			go func(mapping types.UDPMapping) {
-				mtu := n.core.MTU()
-				udpListenConn, err := net.ListenUDP("udp", mapping.Listen)
-				if err != nil {
-					panic(err)
-				}
-				logger.Infof("Mapping local UDP port %d to Yggdrasil %s", mapping.Listen.Port, mapping.Mapped)
-				localUdpConnections := new(sync.Map)
-				udpBuffer := make([]byte, mtu)
-				for {
-					bytesRead, remoteUdpAddr, err := udpListenConn.ReadFrom(udpBuffer)
-					if err != nil {
-						if bytesRead == 0 {
-							continue
-						}
-					}
-
-					remoteUdpAddrStr := remoteUdpAddr.String()
-
-					var udpSession *UDPSession = nil
-
-					connVal, ok := localUdpConnections.Load(remoteUdpAddrStr)
-
-					if !ok {
-						logger.Debugf("Creating new session for %s", remoteUdpAddr.String())
-						udpFwdConn, err := s.DialUDP(mapping.Mapped)
-						if err != nil {
-							logger.Errorf("Failed to connect to %s: %s", mapping.Mapped, err)
-							continue
-						}
-						udpSession = &UDPSession{
-							conn:       udpFwdConn,
-							remoteAddr: remoteUdpAddr,
-						}
-						localUdpConnections.Store(remoteUdpAddrStr, udpSession)
-						go types.ReverseProxyUDP(mtu, udpListenConn, remoteUdpAddr, udpFwdConn)
-					} else {
-						udpSession, ok = connVal.(*UDPSession)
-
-						if !ok {
-							continue
-						}
-					}
-
-					udpFwdConnPtr := udpSession.conn.(*gonet.UDPConn)
-					udpFwdConn := *udpFwdConnPtr
-
-					_, err = udpFwdConn.Write(udpBuffer[:bytesRead])
-					if err != nil {
-						logger.Debugf("Cannot write from yggdrasil to udp listener: %q", err)
-						udpFwdConn.Close()
-						localUdpConnections.Delete(remoteUdpAddrStr)
-						continue
-					}
-				}
-			}(mapping)
+			udpListenConn, err := net.ListenUDP("udp", mapping.Listen)
+			if err != nil {
+				panic(err)
+			}
+			logger.Infof("Mapping local UDP port %d to Yggdrasil %s", mapping.Listen.Port, mapping.Mapped)
+			go udpforward.ForwardLocalUDP(
+				udpListenConn,
+				int(n.core.MTU()),
+				func() (udpforward.UDPWriteConn, error) {
+					return s.DialUDP(mapping.Mapped)
+				},
+				logger,
+				udpforward.DefaultUDPForwardWriteTimeout,
+				udpforward.DefaultUDPForwardQueueLen,
+			)
 		}
 	}
 
