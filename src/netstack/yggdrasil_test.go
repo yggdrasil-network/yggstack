@@ -80,7 +80,7 @@ func TestNICAcceptsPacketAboveLocalMTU(t *testing.T) {
 		t.Fatalf("overlay accepts packets up to %d, want %d", got, overlayMTU)
 	}
 
-	go nic.readLoop()
+	go nic.readLoop(1)
 	packet := make([]byte, localMTU+148)
 	packet[0] = 0x60
 	rwc.packets <- packet
@@ -105,7 +105,7 @@ func TestNICKeepsDeliveringWhileReadIsBlocked(t *testing.T) {
 	rwc.blockAt = 1
 	nic := newNIC(rwc)
 	for i := 0; i < nicReaders; i++ {
-		go nic.readLoop()
+		go nic.readLoop(1)
 	}
 
 	deadline := time.After(2 * time.Second)

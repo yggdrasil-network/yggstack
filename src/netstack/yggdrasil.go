@@ -92,7 +92,7 @@ func (s *YggdrasilNetstack) newYggdrasilNIC(nic *YggdrasilNIC, ygg *core.Core) t
 		return err
 	}
 	for i := 0; i < nicReaders; i++ {
-		go nic.readLoop()
+		go nic.readLoop(i + 1)
 	}
 	go func() {
 		for packet := range nic.packetQueue {
@@ -150,12 +150,15 @@ func (e *YggdrasilNIC) IsAttached() bool { return e.dispatcher != nil }
 
 // readLoop reads the overlay until the connection fails. Each reader owns its
 // buffer, so the readers never share memory.
-func (e *YggdrasilNIC) readLoop() {
+func (e *YggdrasilNIC) readLoop(id int) {
 	buf := make([]byte, e.ipv6rwc.MaxMTU())
 	for {
 		rx, err := e.ipv6rwc.Read(buf)
 		if err != nil {
-			log.Println(err)
+			// Losing a reader narrows the protection described above the
+			// constant: with none left, a single send performed inside Read
+			// stops inbound delivery again. Say so instead of going quiet.
+			log.Printf("netstack: overlay reader %d of %d stopped: %v", id, nicReaders, err)
 			return
 		}
 		if rx == 0 {
@@ -200,6 +203,7 @@ func (e *YggdrasilNIC) writePacket(
 	// local stack and the goroutine that retries reset packets - never share
 	// a buffer here.
 	vv := pkt.ToView()
+	defer vv.Release()
 	if _, err := e.ipv6rwc.Write(vv.AsSlice()); err != nil {
 		return &tcpip.ErrAborted{}
 	}
