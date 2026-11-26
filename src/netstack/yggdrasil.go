@@ -15,49 +15,85 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 )
 
+// overlayConn is the part of *ipv6rwc.ReadWriteCloser that the NIC depends on.
+// The NIC is written against this interface so that its behaviour can be
+// exercised without a live Yggdrasil core.
+type overlayConn interface {
+	Read(p []byte) (int, error)
+	Write(p []byte) (int, error)
+	MTU() uint64
+	MaxMTU() uint64
+	SetMTU(mtu uint64)
+}
+
+// nicReaders is the number of goroutines that read the overlay at the same
+// time.
+//
+// Reading is not a passive operation. Read sends from inside the call in two
+// cases: an inbound packet larger than the overlay MTU is answered with an
+// ICMPv6 PacketTooBig, and a packet that was buffered until the destination
+// key was learned is flushed once that key becomes known. Such a send goes
+// through the session layer, which waits for other actors of the library to
+// make progress. That wait has no timeout and a single read call cannot be
+// cancelled on its own: only closing the whole connection, which tears down
+// the node, breaks it. A single reader would therefore stop draining the
+// inbound queue for as long as one send is waiting, and the actors the send
+// waits for are fed from that very queue, so the NIC would stop receiving for
+// good. With a second reader the inbound queue keeps being drained while the
+// first one is busy inside a send, so one stuck call no longer stops inbound
+// delivery.
+//
+// Packets are delivered by whichever reader picks them up first, so their
+// order is not guaranteed across readers. The overlay is a datagram network
+// and both UDP and TCP tolerate reordering.
+const nicReaders = 2
+
 type YggdrasilNIC struct {
-	stack      *YggdrasilNetstack
-	ipv6rwc    *ipv6rwc.ReadWriteCloser
-	dispatcher stack.NetworkDispatcher
-	readBuf    []byte
-	writeBuf   []byte
-	rstPackets chan *stack.PacketBuffer
+	stack       *YggdrasilNetstack
+	ipv6rwc     overlayConn
+	dispatcher  stack.NetworkDispatcher
+	mtu         uint32
+	rstPackets  chan *stack.PacketBuffer
 	packetQueue chan []byte
 }
 
-func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) tcpip.Error {
-	rwc := ipv6rwc.NewReadWriteCloser(ygg)
-	mtu := rwc.MTU()
-	nic := &YggdrasilNIC{
-		ipv6rwc:    rwc,
-		readBuf:    make([]byte, mtu),
-		writeBuf:   make([]byte, mtu),
-		rstPackets: make(chan *stack.PacketBuffer, 100),
+// newNIC prepares a NIC over the given overlay connection.
+//
+// Two different limits are involved and they must not be confused.
+//
+// The MTU the local network stack is told about (nic.mtu) bounds the packets
+// that stack builds, and it is the smaller of the two. The MTU kept by the
+// overlay connection bounds the packets that may arrive from the overlay: a
+// larger one is dropped and answered with an ICMPv6 PacketTooBig. That answer
+// is a send performed on the reading goroutine (see nicReaders), so the
+// overlay limit is raised to the largest packet the overlay can deliver at
+// all, and no inbound packet can reach the answering path. Doing so also stops
+// the NIC from discarding perfectly valid traffic: a local UDP mapping whose
+// datagram is larger than the default limit would otherwise be answered with
+// PacketTooBig on every packet and never reach its socket.
+func newNIC(rwc overlayConn) *YggdrasilNIC {
+	localMTU := rwc.MTU()
+	rwc.SetMTU(rwc.MaxMTU())
+	return &YggdrasilNIC{
+		ipv6rwc:     rwc,
+		mtu:         uint32(localMTU),
+		rstPackets:  make(chan *stack.PacketBuffer, 100),
 		packetQueue: make(chan []byte, 1000),
 	}
+}
+
+func (s *YggdrasilNetstack) NewYggdrasilNIC(ygg *core.Core) tcpip.Error {
+	return s.newYggdrasilNIC(newNIC(ipv6rwc.NewReadWriteCloser(ygg)), ygg)
+}
+
+func (s *YggdrasilNetstack) newYggdrasilNIC(nic *YggdrasilNIC, ygg *core.Core) tcpip.Error {
+	nic.stack = s
 	if err := s.stack.CreateNIC(1, nic); err != nil {
 		return err
 	}
-	go func() {
-		var rx int
-		var err error
-		for {
-			rx, err = nic.ipv6rwc.Read(nic.readBuf)
-			if err != nil {
-				log.Println(err)
-				break
-			}
-
-			packet := make([]byte, rx)
-			copy(packet, nic.readBuf[:rx])
-
-			select {
-			case nic.packetQueue <- packet:
-			default:
-				log.Println("Packet queue full, dropping packet")
-			}
-		}
-	}()
+	for i := 0; i < nicReaders; i++ {
+		go nic.readLoop()
+	}
 	go func() {
 		for packet := range nic.packetQueue {
 			pkb := stack.NewPacketBuffer(stack.PacketBufferOptions{
@@ -112,7 +148,30 @@ func (e *YggdrasilNIC) Attach(dispatcher stack.NetworkDispatcher) { e.dispatcher
 
 func (e *YggdrasilNIC) IsAttached() bool { return e.dispatcher != nil }
 
-func (e *YggdrasilNIC) MTU() uint32 { return uint32(e.ipv6rwc.MTU()) }
+// readLoop reads the overlay until the connection fails. Each reader owns its
+// buffer, so the readers never share memory.
+func (e *YggdrasilNIC) readLoop() {
+	buf := make([]byte, e.ipv6rwc.MaxMTU())
+	for {
+		rx, err := e.ipv6rwc.Read(buf)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		if rx == 0 {
+			continue
+		}
+		packet := make([]byte, rx)
+		copy(packet, buf[:rx])
+		select {
+		case e.packetQueue <- packet:
+		default:
+			log.Println("Packet queue full, dropping packet")
+		}
+	}
+}
+
+func (e *YggdrasilNIC) MTU() uint32 { return e.mtu }
 
 func (e *YggdrasilNIC) SetMTU(uint32) {}
 
@@ -137,13 +196,11 @@ func (e *YggdrasilNIC) writePacket(
 		if r != nil {
 		}
 	}()
+	// ToView returns a copy owned by this call, so concurrent writers - the
+	// local stack and the goroutine that retries reset packets - never share
+	// a buffer here.
 	vv := pkt.ToView()
-	n, err := vv.Read(e.writeBuf)
-	if err != nil {
-		return &tcpip.ErrAborted{}
-	}
-	_, err = e.ipv6rwc.Write(e.writeBuf[:n])
-	if err != nil {
+	if _, err := e.ipv6rwc.Write(vv.AsSlice()); err != nil {
 		return &tcpip.ErrAborted{}
 	}
 	return nil
